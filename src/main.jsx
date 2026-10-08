@@ -60,11 +60,12 @@ function App(){
   const {data}=supabase.auth.onAuthStateChange((_e,s)=>{
     (async()=>{
       setSession(s);
+      if(!s){setCases([]);setEmail('');setPassword('');setName('');setMsg('')}
     })();
   });
   return()=>data.subscription.unsubscribe();
  },[]);
- useEffect(()=>{if(session) loadCases()},[session]);
+ useEffect(()=>{if(session) loadCases();else setCases([])},[session]);
  async function auth(e){e.preventDefault();setMsg(''); const fn=mode==='login'?supabase.auth.signInWithPassword({email,password}):supabase.auth.signUp({email,password,options:{data:{full_name:name}}}); const {error}=await fn;if(error)setMsg(error.message);else setMsg(mode==='login'?'Sesión iniciada.':'Cuenta creada correctamente.')}
  async function loadCases(){
   const {data,error}=await supabase
@@ -78,7 +79,7 @@ function App(){
    setCases(data||[]);
   }
  }
- async function logout(){await supabase.auth.signOut();setMode('home')}
+ async function logout(){await supabase.auth.signOut();setCases([]);setEmail('');setPassword('');setName('');setMsg('');setMode('home')}
  return <div className="app">
   <header><div className="brand"><div className="logo"><img src="/casos-privados/lexacaso.jpeg" alt="LEXACASO"/></div><div><b>LEXACASO</b><span>Tu caso, en buenas manos</span></div></div>{session?<button className="ghost" onClick={logout}><LogOut size={17}/> Salir</button>:<button className="ghost" onClick={()=>setMode('login')}><LogIn size={17}/> Ingresar</button>}</header>
   <main>
