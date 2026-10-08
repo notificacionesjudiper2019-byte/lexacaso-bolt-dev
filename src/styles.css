@@ -32,3 +32,26 @@
 .adminCaseRowMain span{font-size:12px;color:#758096}
 .caseEditForm{padding:16px;background:#fff;border-top:1px solid #e6eaf1}
 @media(max-width:700px){.headerRight{gap:4px}.headerRight .ghost{padding:8px}.headerRight .ghost svg{width:15px;height:15px}}
+.docUploadHeader{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.docCount{font-size:13px;font-weight:700;color:#53627b;white-space:nowrap}
+.docSlots{display:grid;gap:10px}
+.docSlot{background:#fff;border:1px solid #e6eaf1;border-radius:13px;padding:15px;display:flex;align-items:center;gap:12px;transition:border-color .15s,box-shadow .15s}
+.docSlot.filled{border-color:#d4dde6}
+.docSlot.filled:hover{border-color:#6b8cda;box-shadow:0 4px 16px rgba(7,31,67,.06)}
+.docSlot.empty{border-style:dashed;background:#fafbfd}
+.docSlotIcon{flex-shrink:0;color:#3158ad}
+.docSlot.empty .docSlotIcon{color:#9aa5b8}
+.docSlotInfo{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.docSlotInfo b{font-size:14px;color:#34415c;word-break:break-word}
+.docSlotInfo span{font-size:12px;color:#758096}
+.docReviewBadge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;width:fit-content}
+.docVisibilityNote{font-size:11px;color:#9aa5b8}
+.docSlotActions{display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0}
+@media(max-width:700px){.docSlot{flex-direction:column;align-items:flex-start;gap:10px}.docSlotActions{width:100%}}
+.adminDocSubList{display:flex;flex-direction:column;gap:6px;padding:8px 0 0}
+.adminDocSubItem{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8f9fc;border:1px solid #eef1f6;border-radius:9px}
+.adminDocSubItem>svg{color:#3158ad;flex-shrink:0}
+.adminDocSubInfo{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.adminDocSubInfo b{font-size:13px;color:#34415c;word-break:break-word}
+.adminDocSubInfo span{font-size:11px;color:#9aa5b8}
+@media(max-width:700px){.adminDocSubItem{flex-direction:column;align-items:flex-start;gap:6px}}

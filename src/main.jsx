@@ -51,6 +51,12 @@ const ACTION_STATUSES=[
 const WHATSAPP_NUMBER='57310560386';
 const WHATSAPP_MSG='Hola, necesito ayuda con mi caso en LEXACASO.';
 const POLICY_VERSION='1.0.0';
+const MAX_DOCS=100;
+const MAX_FILE_SIZE=25*1024*1024;
+const ALLOWED_EXTENSIONS=['pdf','jpg','jpeg','png','webp','doc','docx'];
+const REVIEW_STATUS_LABELS={pending:'Pendiente',in_review:'En revisión',reviewed:'Revisado'};
+const REVIEW_STATUS_COLORS={pending:'#92400e',in_review:'#1e40af',reviewed:'#065f46'};
+const REVIEW_STATUS_BACKGROUNDS={pending:'#fef3c7',in_review:'#dbeafe',reviewed:'#d1fae5'};
 const CONSENT_TEXT='Autorizo el tratamiento de mis datos personales conforme al Aviso de Privacidad y la Política de Tratamiento de Datos Personales.';
 
 function App(){
@@ -534,17 +540,59 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
  async function uploadDoc(e){
   const f=e.target.files?.[0];
   if(!f) return;
-  setUploadingFile(true);
+  e.target.value='';
   setMsg('');setMsgType('');
-  const ownerId=caseData.user_id||session.user.id;
-  const path=ownerId+'/'+caseId+'/'+f.name;
-  const up=await supabase.storage.from('case-documents').upload(path,f);
-  if(up.error){setMsg('No se pudo subir: '+up.error.message);setMsgType('error');setUploadingFile(false);return}
-  const ins=await supabase.from('case_documents').insert({case_id:caseId,user_id:session.user.id,file_name:f.name,storage_path:path,content_type:f.type||null});
-  if(ins.error){setMsg('No se pudo registrar: '+ins.error.message);setMsgType('error');setUploadingFile(false);return}
-  setMsg('Documento subido correctamente.');setMsgType('success');
-  setUploadingFile(false);
-  loadAll();
+  if(documents.length>=MAX_DOCS){setMsg(`Has alcanzado el límite de ${MAX_DOCS} documentos por caso.`);setMsgType('error');return}
+  const ext=f.name.split('.').pop()?.toLowerCase();
+  if(!ALLOWED_EXTENSIONS.includes(ext)){setMsg('Tipo de archivo no permitido. Formatos: PDF, JPG, PNG, WEBP, DOC, DOCX.');setMsgType('error');return}
+  if(f.size>MAX_FILE_SIZE){setMsg(`El archivo excede 25 MB. (Tu archivo: ${(f.size/1024/1024).toFixed(1)} MB)`);setMsgType('error');return}
+  setUploadingFile(true);
+  try{
+   const ownerId=caseData.user_id||session.user.id;
+   const safeName=f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+   const path=ownerId+'/'+caseId+'/'+Date.now()+'_'+safeName;
+   const up=await supabase.storage.from('case-documents').upload(path,f,{cacheControl:'3600',upsert:false});
+   if(up.error){setMsg('No se pudo subir el archivo: '+up.error.message);setMsgType('error');return}
+   const ins=await supabase.from('case_documents').insert({case_id:caseId,user_id:session.user.id,file_name:f.name,storage_path:path,content_type:f.type||null,review_status:'pending'});
+   if(ins.error){setMsg('El archivo subió pero no se registró: '+ins.error.message);setMsgType('error');
+    try{await supabase.storage.from('case-documents').remove([path])}catch(e2){}
+    return}
+   setMsg('Documento "'+f.name+'" subido correctamente.');setMsgType('success');
+   loadAll();
+  }catch(err){
+   setMsg('Error inesperado al subir el documento. Intenta nuevamente.');setMsgType('error');
+  }finally{
+   setUploadingFile(false);
+  }
+ }
+ async function replaceDoc(doc){
+  const input=document.createElement('input');
+  input.type='file';input.accept='.pdf,.jpg,.jpeg,.png,.webp,.doc,.docx';
+  input.onchange=async()=>{
+   const f=input.files?.[0];if(!f)return;
+   const ext=f.name.split('.').pop()?.toLowerCase();
+   if(!ALLOWED_EXTENSIONS.includes(ext)){setMsg('Tipo de archivo no permitido.');setMsgType('error');return}
+   if(f.size>MAX_FILE_SIZE){setMsg('El archivo excede 25 MB.');setMsgType('error');return}
+   setUploadingFile(true);setMsg('');setMsgType('');
+   try{
+    const ownerId=caseData.user_id||session.user.id;
+    const safeName=f.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const newPath=ownerId+'/'+caseId+'/'+Date.now()+'_'+safeName;
+    const up=await supabase.storage.from('case-documents').upload(newPath,f,{cacheControl:'3600',upsert:false});
+    if(up.error){setMsg('No se pudo subir el nuevo archivo: '+up.error.message);setMsgType('error');return}
+    const upd=await supabase.from('case_documents').update({file_name:f.name,storage_path:newPath,content_type:f.type||null,review_status:'pending'}).eq('id',doc.id);
+    if(upd.error){setMsg('El archivo subió pero no se actualizó: '+upd.error.message);setMsgType('error');try{await supabase.storage.from('case-documents').remove([newPath])}catch(e2){}return}
+    try{await supabase.storage.from('case-documents').remove([doc.storage_path])}catch(e2){}
+    setMsg('Documento reemplazado correctamente.');setMsgType('success');loadAll();
+   }catch(err){setMsg('Error inesperado al reemplazar.');setMsgType('error')}
+   finally{setUploadingFile(false)}
+  };
+  input.click();
+ }
+ async function changeReviewStatus(docId,newStatus){
+  const {error}=await supabase.from('case_documents').update({review_status:newStatus}).eq('id',docId);
+  if(error){setMsg('No se pudo actualizar el estado de revisión.');setMsgType('error');return}
+  setMsg('Estado de revisión actualizado a "'+REVIEW_STATUS_LABELS[newStatus]+'".');setMsgType('success');loadAll();
  }
 
  function statusLabel(s){
@@ -631,19 +679,43 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
   </div>}
 
   {detailTab==='docs'&&<div className="detailDocs">
-   <label className="upload"><Upload size={20}/><span>{uploadingFile?'Subiendo...':'Añadir documento'}</span><input type="file" onChange={uploadDoc} disabled={uploadingFile}/></label>
-   <div className="docList">
-    {documents.length?documents.map(d=><div className="docItem" key={d.id}>
-     <FileText size={20}/>
-     <div className="docInfo"><b>{d.file_name}</b><span>{d.visible_to_client?'Visible':'Interno'}{isAdmin&&d.is_sensitive?' · Sensible':''}</span></div>
-     <div className="docActions">
-      <button className="ghost sm" onClick={()=>downloadDoc(d)}><Download size={16}/> Descargar</button>
-      {isAdmin&&<button className="ghost sm" onClick={async()=>{const {error}=await supabase.rpc('set_case_document_visibility',{p_document_id:d.id,p_visible_to_client:!d.visible_to_client,p_is_sensitive:d.is_sensitive});if(error){setMsg('No se pudo cambiar la visibilidad.');setMsgType('error')}else{setMsg('Visibilidad actualizada.');setMsgType('success');loadAll()}}}>{d.visible_to_client?<><EyeOff size={14}/> Marcar interno</>:<><Eye size={14}/> Hacer visible</>}</button>}
-      {isAdmin&&<button className="ghost sm" onClick={async()=>{const {error}=await supabase.rpc('set_case_document_visibility',{p_document_id:d.id,p_visible_to_client:d.visible_to_client,p_is_sensitive:!d.is_sensitive});if(error){setMsg('No se pudo cambiar.');setMsgType('error')}else{setMsg('Sensibilidad actualizada.');setMsgType('success');loadAll()}}}>{d.is_sensitive?'No sensible':'Sensible'}</button>}
-      <button className="ghost sm danger" onClick={()=>deleteDoc(d)}><Trash2 size={16}/></button>
-     </div>
-    </div>):<div className="empty"><FileText size={38}/><b>Sin documentos</b><span>{isAdmin?'Sube documentos para este caso.':'Sube documentos relacionados con tu caso.'}</span></div>}
+   <div className="docUploadHeader">
+    <label className="upload"><Upload size={20}/><span>{uploadingFile?'Subiendo...':'Añadir documento'}</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" onChange={uploadDoc} disabled={uploadingFile||documents.length>=MAX_DOCS}/></label>
+    <span className="docCount">{documents.length} / {MAX_DOCS} documentos</span>
    </div>
+   {documents.length>=MAX_DOCS&&<div className="notice" style={{marginBottom:'12px'}}><AlertCircle size={16}/><span>Has alcanzado el límite de {MAX_DOCS} documentos. Elimina uno para subir otro.</span></div>}
+   <div className="docSlots">
+    {Array.from({length:Math.max(documents.length,Math.min(documents.length+5,MAX_DOCS))}).map((_,i)=>{
+     const d=documents[i];
+     if(d){
+      const rs=d.review_status||'pending';
+      return <div className="docSlot filled" key={d.id}>
+       <div className="docSlotIcon"><FileText size={22}/></div>
+       <div className="docSlotInfo">
+        <b>Documento {i+1}: {d.file_name}</b>
+        <span>Subido: {new Date(d.created_at).toLocaleDateString('es-CO')}</span>
+        <span className="docReviewBadge" style={{color:REVIEW_STATUS_COLORS[rs],background:REVIEW_STATUS_BACKGROUNDS[rs]}}>{REVIEW_STATUS_LABELS[rs]}</span>
+        {isAdmin&&<span className="docVisibilityNote">{d.visible_to_client?'Visible':'Interno'}{d.is_sensitive?' · Sensible':''}</span>}
+       </div>
+       <div className="docSlotActions">
+        <button className="ghost sm" onClick={()=>downloadDoc(d)}><Download size={14}/> Descargar</button>
+        <button className="ghost sm" onClick={()=>replaceDoc(d)}><RefreshCw size={14}/> Reemplazar</button>
+        {isAdmin&&<button className="ghost sm" onClick={async()=>{const {error}=await supabase.rpc('set_case_document_visibility',{p_document_id:d.id,p_visible_to_client:!d.visible_to_client,p_is_sensitive:d.is_sensitive});if(error){setMsg('No se pudo cambiar la visibilidad.');setMsgType('error')}else{setMsg('Visibilidad actualizada.');setMsgType('success');loadAll()}}}>{d.visible_to_client?<><EyeOff size={14}/> Interno</>:<><Eye size={14}/> Visible</>}</button>}
+        {isAdmin&&<select className="roleSelect" value={rs} onChange={e=>changeReviewStatus(d.id,e.target.value)}><option value="pending">Pendiente</option><option value="in_review">En revisión</option><option value="reviewed">Revisado</option></select>}
+        <button className="ghost sm danger" onClick={()=>deleteDoc(d)}><Trash2 size={14}/></button>
+       </div>
+      </div>;
+     }
+     return <div className="docSlot empty" key={'empty-'+i}>
+      <div className="docSlotIcon"><Plus size={22}/></div>
+      <div className="docSlotInfo"><b>Documento {i+1}</b><span>Pendiente de carga</span></div>
+      <div className="docSlotActions">
+       <label className="ghost sm" style={{cursor:'pointer'}}><Upload size={14}/> Cargar<input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" style={{display:'none'}} onChange={uploadDoc} disabled={uploadingFile||documents.length>=MAX_DOCS}/></label>
+      </div>
+     </div>;
+    })}
+   </div>
+   {documents.length===0&&<div className="empty" style={{marginTop:'16px'}}><FileText size={38}/><b>Sin documentos</b><span>{isAdmin?'Sube documentos para este caso.':'Sube documentos relacionados con tu caso. Formatos: PDF, JPG, PNG, WEBP, DOC, DOCX (máx. 25 MB).'}</span></div>}
   </div>}
 
   {detailTab==='info'&&!isAdmin&&<AuthorizationPanel caseId={caseId}/>}
@@ -960,6 +1032,9 @@ function AdminPanel({session,onOpenCase}){
  const [clientActionLoading,setClientActionLoading]=useState(null);
  const [tempPasswordForm,setTempPasswordForm]=useState(null);
  const [tempPasswordValue,setTempPasswordValue]=useState('');
+ const [adminDocs,setAdminDocs]=useState([]);
+ const [adminDocsLoading,setAdminDocsLoading]=useState(false);
+ const [expandedDocClient,setExpandedDocClient]=useState(null);
 
  async function load(){
   setLoading(true);setError('');
@@ -999,6 +1074,28 @@ function AdminPanel({session,onOpenCase}){
   const url=URL.createObjectURL(data);const link=document.createElement('a');link.href=url;link.download='lexacaso-casos.xlsx';link.click();URL.revokeObjectURL(url);setMessage('Exportación descargada.');
  }
  function caseForAuthorization(item){return cases.find(itemCase=>itemCase.id===item.case_id)}
+
+ async function loadAdminDocs(){
+  setAdminDocsLoading(true);
+  const {data:authRows}=await supabase.from('case_authorizations').select('case_id').eq('user_id',session.user.id).is('revoked_at',null);
+  const authorizedCaseIds=(authRows||[]).map(a=>a.case_id);
+  if(authorizedCaseIds.length===0){setAdminDocs([]);setAdminDocsLoading(false);return}
+  const {data:docRows}=await supabase.from('case_documents').select('id,case_id,user_id,file_name,content_type,created_at,review_status,visible_to_client,is_sensitive,storage_path').in('case_id',authorizedCaseIds).order('created_at',{ascending:false});
+  setAdminDocs(docRows||[]);
+  setAdminDocsLoading(false);
+ }
+ function adminDocsByCedula(){
+  const map={};
+  for(const d of adminDocs){
+   const c=cases.find(x=>x.id===d.case_id);
+   if(!c)continue;
+   const p=profiles.find(x=>x.id===c.user_id);
+   const cedula=p?.cedula||'Sin cédula';
+   if(!map[cedula])map[cedula]={profile:p,docs:[]};
+   map[cedula].docs.push(d);
+  }
+  return Object.entries(map).sort((a,b)=>a[0].localeCompare(b[0]));
+ }
 
  function resetNotifForm(){
   setNotifForm({user_id:'',title:'',message:'',case_number:'',court:'',filing_date:'',attachment_url:''});
@@ -1127,6 +1224,7 @@ function AdminPanel({session,onOpenCase}){
    <button className={section==='clients'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('clients')}><Users size={17}/> Clientes <span>{clientProfiles.length}</span></button>
    <button className={section==='judicial'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('judicial')}><CourtIcon size={17}/> Notificaciones <span>{judicialNotifs.length}</span></button>
    <button className={section==='authorizations'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('authorizations')}><LockKeyhole size={17}/> Autorizaciones <span>{activeAuthorizations.length}</span></button>
+   <button className={section==='documents'?'adminNavItem active':'adminNavItem'} onClick={()=>{setSection('documents');if(adminDocs.length===0)loadAdminDocs()}}><FileText size={17}/> Documentos <span>{adminDocs.length}</span></button>
    <button className={section==='audit'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('audit')}><Activity size={17}/> Auditoría <span>{audit.length}</span></button>
   </nav>
 
@@ -1213,6 +1311,38 @@ function AdminPanel({session,onOpenCase}){
   </>}
 
   {section==='authorizations'&&<section className="adminCard adminWideCard"><div className="adminCardHeader"><div><h3><LockKeyhole size={18}/> Mis autorizaciones</h3><p className="adminCardHint">Estos son los casos que sus propietarios te han permitido consultar.</p></div><span className="securePill"><ShieldCheck size={14}/> RLS activo</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando autorizaciones...</div>:activeAuthorizations.length? <div className="authorizationAdminList">{activeAuthorizations.map(item=>{const currentCase=caseForAuthorization(item);const owner=currentCase&&profiles.find(profile=>profile.id===currentCase.user_id);return <div className="authorizationAdminItem" key={item.id}><div><b>{currentCase?.title||'Caso autorizado'}</b><span>{owner?.full_name||'Propietario'}</span><small>Autorizado el {new Date(item.authorized_at).toLocaleDateString('es-CO')}</small></div>{currentCase&&<button className="ghost sm" onClick={()=>onOpenCase(currentCase.id)}><Eye size={15}/> Abrir caso</button>}</div>})}</div>:<div className="empty"><LockKeyhole size={32}/><b>No tienes autorizaciones activas</b><span>Un cliente debe autorizarte desde la sección de su caso.</span></div>}</section>}
+  {section==='documents'&&<section className="adminCard adminWideCard">
+   <div className="adminCardHeader"><div><h3><FileText size={18}/> Documentos por cliente</h3><p className="adminCardHint">Todos los documentos subidos por clientes autorizados, organizados por cédula de ciudadanía.</p></div><span className="securePill"><ShieldCheck size={14}/> RLS activo</span></div>
+   {adminDocsLoading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando documentos...</div>:adminDocs.length?
+    <div className="authorizationAdminList">
+     {adminDocsByCedula().map(([cedula,group])=>{
+      const isOpen=expandedDocClient===cedula;
+      return <div className="authorizationAdminItem" key={cedula} style={{flexDirection:'column',alignItems:'stretch',gap:'10px'}}>
+       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'14px',flexWrap:'wrap',cursor:'pointer'}} onClick={()=>setExpandedDocClient(isOpen?null:cedula)}>
+        <div><b>{group.profile?.full_name||'Sin nombre'}</b><span style={{display:'block'}}>Cédula: {cedula} · {group.docs.length} documento(s)</span></div>
+        {isOpen?<ChevronDown size={18}/>:<ChevronRight size={18}/>}
+       </div>
+       {isOpen&&<div className="adminDocSubList">
+        {group.docs.map((d,idx)=>{
+         const rs=d.review_status||'pending';
+         const caseRow=cases.find(x=>x.id===d.case_id);
+         return <div className="adminDocSubItem" key={d.id}>
+          <FileText size={16}/>
+          <div className="adminDocSubInfo">
+           <b>{idx+1}. {d.file_name}</b>
+           <span>{caseRow?.title||'Caso'} · {new Date(d.created_at).toLocaleDateString('es-CO')}</span>
+          </div>
+          <span className="docReviewBadge" style={{color:REVIEW_STATUS_COLORS[rs],background:REVIEW_STATUS_BACKGROUNDS[rs]}}>{REVIEW_STATUS_LABELS[rs]}</span>
+          <select className="roleSelect" style={{padding:'5px 8px',fontSize:'12px'}} value={rs} onChange={async e=>{const{error}=await supabase.from('case_documents').update({review_status:e.target.value}).eq('id',d.id);if(error){setMessage('No se pudo actualizar.');return}loadAdminDocs()}}><option value="pending">Pendiente</option><option value="in_review">En revisión</option><option value="reviewed">Revisado</option></select>
+          <button className="ghost sm" onClick={async()=>{const{signedUrl,error}=await supabase.storage.from('case-documents').createSignedUrl(d.storage_path,300);if(error||!signedUrl){setMessage('No se pudo generar enlace.');return}window.open(signedUrl,'_blank')}}><Download size={13}/></button>
+         </div>;
+        })}
+       </div>}
+      </div>;
+     })}
+    </div>:<div className="empty"><FileText size={32}/><b>Sin documentos autorizados</b><span>Los documentos aparecerán cuando tengas casos autorizados con archivos cargados.</span></div>}
+  </section>}
+
   {section==='audit'&&<section className="adminCard adminWideCard"><div className="adminCardHeader"><div><h3><Activity size={18}/> Registro de auditoría</h3><p className="adminCardHint">Eventos registrados para revisar accesos y cambios administrativos.</p></div><span className="securePill"><ShieldCheck size={14}/> Solo administradores</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando auditoría...</div>:audit.length?<div className="auditTable">{audit.map(item=><div className="auditDetailRow" key={item.id}><div><b>{item.action}</b><span>{item.target_case_id?'Caso relacionado: '+item.target_case_id:'Evento general'}</span></div><time>{new Date(item.created_at).toLocaleString('es-CO')}</time></div>)}</div>:<div className="empty"><Activity size={32}/><b>Sin eventos</b><span>Los eventos administrativos aparecerán aquí.</span></div>}</section>}
  </div>
 }
