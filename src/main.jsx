@@ -1,18 +1,18 @@
 import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {createClient} from '@supabase/supabase-js';
-import {Scale,ShieldCheck,Upload,FolderOpen,ArrowRight,LogIn,LogOut,PlusCircle,Clock3,FileText} from 'lucide-react';
+import { Scale, ShieldCheck, Upload, FolderOpen, ArrowRight, LogIn, LogOut, CirclePlus as PlusCircle, Clock3, FileText } from 'lucide-react';
 import './styles.css';
 
-const supabaseUrl=import.meta.env.VITE_SUPABASE_URL||'https://grzzdenmlbgauuvlwupq.supabase.co';
-const supabaseKey=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY||'sb_publishable_SXiRoz3RzJf_LB2o12mo0A_depXEaKy';
+const supabaseUrl=import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey=import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase=createClient(supabaseUrl,supabaseKey);
 
 function App(){
  const [session,setSession]=useState(null),[mode,setMode]=useState('home'),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[name,setName]=useState(''),[msg,setMsg]=useState(''),[cases,setCases]=useState([]);
  useEffect(()=>{supabase.auth.getSession().then(({data})=>setSession(data.session)); const {data}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s)); return()=>data.subscription.unsubscribe()},[]);
  useEffect(()=>{if(session) loadCases()},[session]);
- async function auth(e){e.preventDefault();setMsg(''); const fn=mode==='login'?supabase.auth.signInWithPassword({email,password}):supabase.auth.signUp({email,password,options:{data:{full_name:name}}}); const {error}=await fn;if(error)setMsg(error.message);else setMsg(mode==='login'?'Sesión iniciada.':'Revisa tu correo para confirmar la cuenta.')}
+ async function auth(e){e.preventDefault();setMsg(''); const fn=mode==='login'?supabase.auth.signInWithPassword({email,password}):supabase.auth.signUp({email,password,options:{data:{full_name:name}}}); const {error}=await fn;if(error)setMsg(error.message);else setMsg(mode==='login'?'Sesión iniciada.':'Cuenta creada correctamente.')}
  async function loadCases(){const {data,error}=await supabase.from('cases').select('id,title,status,priority,created_at').order('created_at',{ascending:false});if(!error)setCases(data||[])}
  async function logout(){await supabase.auth.signOut();setMode('home')}
  return <div className="app">
