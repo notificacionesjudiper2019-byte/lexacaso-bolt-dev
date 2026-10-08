@@ -93,7 +93,7 @@ function App(){
   return()=>window.removeEventListener('hashchange',onHashChange);
  },[session,userRole]);
  useEffect(()=>{if(session&&route)window.location.hash=`#/${route}`},[session,route]);
- async function auth(e){e.preventDefault();setMsg(''); const fn=mode==='login'?supabase.auth.signInWithPassword({email,password}):supabase.auth.signUp({email,password,options:{data:{full_name:name}}}); const {error}=await fn;if(error)setMsg(error.message);else setMsg(mode==='login'?'Sesión iniciada.':'Cuenta creada correctamente.')}
+ async function auth(e){e.preventDefault();setMsg('');try{if(mode==='login'){const {error}=await supabase.auth.signInWithPassword({email,password});if(error)setMsg(error.message);else setMsg('Sesión iniciada.')}else{const {data,error}=await supabase.auth.signUp({email,password,options:{data:{full_name:name}}});if(error){setMsg(error.message);return}if(data.user){await supabase.from('profiles').upsert({id:data.user.id,full_name:name.trim()||email,email:email},{onConflict:'id'})}setMsg('Cuenta creada correctamente.')}}catch(err){setMsg('Ocurrió un error inesperado. Intenta nuevamente.')}}
  async function loadCases(){
   const {data,error}=await supabase
    .from('cases')
@@ -951,6 +951,10 @@ function AdminPanel({session,onOpenCase}){
  const [notifForm,setNotifForm]=useState({user_id:'',title:'',message:'',case_number:'',court:'',filing_date:'',attachment_url:''});
  const [notifSaving,setNotifSaving]=useState(false);
  const [notifError,setNotifError]=useState('');
+ const [editingCase,setEditingCase]=useState(null);
+ const [caseEditForm,setCaseEditForm]=useState({case_number:'',court:'',title:'',filing_date:'',attachment_url:'',status:'received'});
+ const [caseEditSaving,setCaseEditSaving]=useState(false);
+ const [caseEditError,setCaseEditError]=useState('');
 
  async function load(){
   setLoading(true);setError('');
@@ -1007,18 +1011,24 @@ function AdminPanel({session,onOpenCase}){
   if(!notifForm.title.trim()){setNotifError('El asunto es obligatorio.');return}
   if(!notifForm.message.trim()){setNotifError('El mensaje es obligatorio.');return}
   setNotifSaving(true);
-  const payload={user_id:notifForm.user_id,title:notifForm.title.trim(),message:notifForm.message.trim(),case_number:notifForm.case_number.trim()||null,court:notifForm.court.trim()||null,filing_date:notifForm.filing_date||null,attachment_url:notifForm.attachment_url.trim()||null,type:'judicial',is_read:false,archived:false};
-  let saveError;
-  if(editingNotifId){
-   const r=await supabase.from('notifications').update(payload).eq('id',editingNotifId);
-   saveError=r.error;
-  }else{
-   const r=await supabase.from('notifications').insert(payload);
-   saveError=r.error;
+  try{
+   const payload={user_id:notifForm.user_id,title:notifForm.title.trim(),message:notifForm.message.trim(),case_number:notifForm.case_number.trim()||null,court:notifForm.court.trim()||null,filing_date:notifForm.filing_date||null,attachment_url:notifForm.attachment_url.trim()||null,type:'judicial',is_read:false,archived:false};
+   let saveError;
+   if(editingNotifId){
+    const r=await supabase.from('notifications').update(payload).eq('id',editingNotifId);
+    saveError=r.error;
+   }else{
+    const r=await supabase.from('notifications').insert(payload);
+    saveError=r.error;
+   }
+   if(saveError){setNotifError('No se pudo guardar: '+saveError.message);return}
+   await supabase.rpc('record_audit_event',{p_action:'notification_sent',p_target_user_id:notifForm.user_id,p_details:{case_number:notifForm.case_number,court:notifForm.court}});
+   resetNotifForm();load();setMessage('Notificación guardada correctamente.');
+  }catch(err){
+   setNotifError('Error inesperado al guardar. Intenta nuevamente.');
+  }finally{
+   setNotifSaving(false);
   }
-  if(saveError){setNotifError('No se pudo guardar: '+saveError.message);setNotifSaving(false);return}
-  await supabase.rpc('record_audit_event',{p_action:'notification_sent',p_target_user_id:notifForm.user_id,p_details:{case_number:notifForm.case_number,court:notifForm.court}});
-  setNotifSaving(false);resetNotifForm();load();setMessage('Notificación guardada correctamente.');
  }
 
  async function deleteNotif(n){
@@ -1044,6 +1054,34 @@ function AdminPanel({session,onOpenCase}){
   return n.is_read?'Leída':'Pendiente';
  }
 
+ function startEditCase(c){
+  setEditingCase(c.id);
+  setCaseEditForm({case_number:c.case_number||'',court:c.authority_name||'',title:c.title||'',filing_date:c.created_at?c.created_at.split('T')[0]:'',attachment_url:'',status:c.status||'received'});
+  setCaseEditError('');
+ }
+ function cancelEditCase(){setEditingCase(null);setCaseEditError('')}
+ async function saveCaseEdit(e){
+  e.preventDefault();setCaseEditError('');
+  if(!caseEditForm.title.trim()){setCaseEditError('El título es obligatorio.');return}
+  setCaseEditSaving(true);
+  try{
+   const updates={title:caseEditForm.title.trim(),case_number:caseEditForm.case_number.trim()||null,authority_name:caseEditForm.court.trim()||null,status:caseEditForm.status};
+   const {error}=await supabase.from('cases').update(updates).eq('id',editingCase);
+   if(error){setCaseEditError('No se pudo actualizar: '+error.message);return}
+   await supabase.rpc('record_audit_event',{p_action:'case_updated_by_admin',p_target_case_id:editingCase,p_details:updates});
+   setEditingCase(null);load();setMessage('Caso actualizado correctamente.');
+  }catch(err){
+   setCaseEditError('Error inesperado al actualizar.');
+  }finally{
+   setCaseEditSaving(false);
+  }
+ }
+ async function changeCaseStatus(caseId,newStatus){
+  const {error}=await supabase.from('cases').update({status:newStatus}).eq('id',caseId);
+  if(error){setMessage('No se pudo cambiar el estado del caso.');return}
+  load();setMessage('Estado del caso actualizado.');
+ }
+
  return <div className="adminPanel">
   <div className="dashHead"><div><div className="badge"><UserCog size={14}/> Acceso autorizado</div><h2>Panel de administración</h2><p>Solo muestra información de casos con autorización vigente para esta cuenta.</p></div><button className="primary" onClick={exportExcel}><Download size={17}/> Exportar Excel</button></div>
   {error&&<div className="notice error"><AlertCircle size={18}/><span>{error}</span></div>}
@@ -1058,8 +1096,8 @@ function AdminPanel({session,onOpenCase}){
 
   {section==='cases'&&<>
    <div className="adminStats"><div><b>{profiles.length}</b><span>Usuarios visibles</span></div><div><b>{filtered.length}</b><span>Casos autorizados</span></div><div><b>{activeAuthorizations.length}</b><span>Autorizaciones activas</span></div></div>
-   <div className="adminFilters"><div className="searchField"><Search size={17}/><input placeholder="Buscar por nombre, cédula, radicado o caso" value={filters.search} onChange={e=>setFilter('search',e.target.value)}/></div><select value={filters.category} onChange={e=>setFilter('category',e.target.value)}><option value="">Todas las categorías</option>{LEGAL_CATALOG.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select><select value={filters.department} onChange={e=>setFilter('department',e.target.value)}><option value="">Todos los departamentos</option>{DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select><select value={filters.status} onChange={e=>setFilter('status',e.target.value)}><option value="">Todos los estados</option><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select><input type="date" value={filters.fromDate} onChange={e=>setFilter('fromDate',e.target.value)}/><input type="date" value={filters.toDate} onChange={e=>setFilter('toDate',e.target.value)}/></div>
-   <section className="adminCard"><div className="adminCardHeader"><h3><FolderOpen size={18}/> Casos autorizados</h3><span className="accessNote"><ShieldCheck size={14}/> Acceso limitado por autorización</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando...</div>:filtered.length?filtered.map(c=>{const p=profiles.find(x=>x.id===c.user_id);return <button className="adminCaseRow" key={c.id} onClick={()=>onOpenCase(c.id)}><div><b>{c.title}</b><span>{p?.full_name||'Usuario'} · {c.legal_category||'Sin categoría'} · {c.case_number||'Sin radicado'}</span></div><span className="caseStatus">{c.status==='in_progress'?'En trámite':c.status==='closed'?'Finalizado':'Recibido'}</span><ArrowRight size={17}/></button>}):<div className="empty"><LockKeyhole size={32}/><b>No hay casos autorizados</b><span>Los casos aparecerán cuando sus propietarios autoricen la revisión.</span></div>}</section>
+   <div className="adminFilters"><div className="searchField"><Search size={17}/><input placeholder="Buscar por nombre, cédula, radicado o caso" value={filters.search} onChange={e=>setFilter('search',e.target.value)}/></div><select value={filters.category} onChange={e=>setFilter('category',e.target.value)}><option value="">Todas las categorías</option>{LEGAL_CATALOG.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select><select value={filters.department} onChange={e=>setFilter('department',e.target.value)}><option value="">Todos los departamentos</option>{DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select><select value={filters.status} onChange={e=>setFilter('status',e.target.value)}><option value="">Todos los estados</option><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select><input type="date" value={filters.fromDate} onChange={e=>setFilter('fromDate',e.target.value)}/><input type="date" value={filters.toDate} onChange={e=>setFilter('toDate',e.target.value)}/><button className="ghost" onClick={()=>load()} disabled={loading}><RefreshCw size={16} className={loading?'spin':''}/> Recargar</button></div>
+   <section className="adminCard"><div className="adminCardHeader"><h3><FolderOpen size={18}/> Casos autorizados</h3><span className="accessNote"><ShieldCheck size={14}/> Acceso limitado por autorización</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando...</div>:filtered.length?filtered.map(c=>{const p=profiles.find(x=>x.id===c.user_id);return <div key={c.id} className="adminCaseRowWrapper">{editingCase===c.id?<form className="caseEditForm" onSubmit={saveCaseEdit}>{caseEditError&&<div className="notice error"><AlertCircle size={16}/><span>{caseEditError}</span></div>}<div className="formGroup"><label>Asunto / Título <span className="req">*</span></label><input value={caseEditForm.title} onChange={e=>setCaseEditForm({...caseEditForm,title:e.target.value})} disabled={caseEditSaving}/></div><div className="formGrid2"><div className="formGroup"><label>Número de expediente</label><input value={caseEditForm.case_number} onChange={e=>setCaseEditForm({...caseEditForm,case_number:e.target.value})} disabled={caseEditSaving} placeholder="Ej: 1100131030032024-001"/></div><div className="formGroup"><label>Juzgado / Autoridad</label><input value={caseEditForm.court} onChange={e=>setCaseEditForm({...caseEditForm,court:e.target.value})} disabled={caseEditSaving} placeholder="Ej: Juzgado 3 Civil"/></div></div><div className="formGrid2"><div className="formGroup"><label>Fecha de radicación</label><input type="date" value={caseEditForm.filing_date} onChange={e=>setCaseEditForm({...caseEditForm,filing_date:e.target.value})} disabled={caseEditSaving}/></div><div className="formGroup"><label>Estado</label><select value={caseEditForm.status} onChange={e=>setCaseEditForm({...caseEditForm,status:e.target.value})} disabled={caseEditSaving}><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select></div></div><div className="row"><button type="submit" className="primary" disabled={caseEditSaving}>{caseEditSaving?<><Loader2 size={16} className="spin"/> Guardando...</>:<><CheckCircle2 size={16}/> Guardar cambios</>}</button><button type="button" className="ghost" onClick={cancelEditCase} disabled={caseEditSaving}>Cancelar</button></div></form>:<div className="adminCaseRow"><div className="adminCaseRowMain" onClick={()=>onOpenCase(c.id)}><b>{c.title}</b><span>{p?.full_name||'Usuario'} · {c.legal_category||'Sin categoría'} · {c.case_number||'Sin radicado'}</span></div><span className="caseStatus">{c.status==='in_progress'?'En trámite':c.status==='closed'?'Finalizado':'Recibido'}</span><div className="timelineActions"><button className="ghost sm" onClick={()=>startEditCase(c)}><Edit3 size={14}/> Editar</button><select className="roleSelect" value={c.status||'received'} onChange={e=>changeCaseStatus(c.id,e.target.value)}><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select><button className="ghost sm" onClick={()=>onOpenCase(c.id)}><Eye size={14}/> Ver</button></div></div>}</div>}):<div className="empty"><LockKeyhole size={32}/><b>No hay casos autorizados</b><span>Los casos aparecerán cuando sus propietarios autoricen la revisión.</span></div>}</section>
   </>}
 
   {section==='clients'&&<section className="adminCard adminWideCard">
@@ -1080,7 +1118,7 @@ function AdminPanel({session,onOpenCase}){
   {section==='judicial'&&<>
    <div className="dashHead" style={{marginBottom:'12px'}}>
     <div><h3>Notificaciones judiciales</h3><p>Emite y gestiona notificaciones judiciales para clientes específicos.</p></div>
-    <button className="primary" onClick={()=>{resetNotifForm();setShowNotifForm(!showNotifForm)}}><Plus size={18}/> Nueva notificación</button>
+    <div className="row" style={{gap:'8px'}}><button className="ghost" onClick={()=>load()} disabled={loading}><RefreshCw size={16} className={loading?'spin':''}/> Recargar</button><button className="primary" onClick={()=>{resetNotifForm();setShowNotifForm(!showNotifForm)}}><Plus size={18}/> Nueva notificación</button></div>
    </div>
    {notifError&&<div className="notice error"><AlertCircle size={18}/><span>{notifError}</span></div>}
    {showNotifForm&&<form className="caseForm extended" onSubmit={saveNotif} style={{marginBottom:'16px'}}>

@@ -25,4 +25,10 @@
 .roleSwitcher{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .roleSelect{padding:7px 12px;border:1px solid #dfe4ec;border-radius:8px;font:inherit;font-size:13px;font-weight:600;background:#fff;color:#34415c;cursor:pointer;outline:none}
 .roleSelect:focus{border-color:#6b8cda}
+.adminCaseRowWrapper{background:#f8f9fc;border:1px solid #e6eaf1;border-radius:12px;margin-bottom:10px;overflow:hidden}
+.adminCaseRow{display:flex;align-items:center;gap:12px;padding:14px 16px}
+.adminCaseRowMain{flex:1;cursor:pointer}
+.adminCaseRowMain b{display:block;font-size:14px;color:#19366f}
+.adminCaseRowMain span{font-size:12px;color:#758096}
+.caseEditForm{padding:16px;background:#fff;border-top:1px solid #e6eaf1}
 @media(max-width:700px){.headerRight{gap:4px}.headerRight .ghost{padding:8px}.headerRight .ghost svg{width:15px;height:15px}}
