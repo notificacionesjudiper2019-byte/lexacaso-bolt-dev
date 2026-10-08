@@ -93,7 +93,7 @@ function App(){
   return()=>window.removeEventListener('hashchange',onHashChange);
  },[session,userRole]);
  useEffect(()=>{if(session&&route)window.location.hash=`#/${route}`},[session,route]);
- async function auth(e){e.preventDefault();setMsg('');try{if(mode==='login'){const {error}=await supabase.auth.signInWithPassword({email,password});if(error)setMsg(error.message);else setMsg('Sesión iniciada.')}else{const {data,error}=await supabase.auth.signUp({email,password,options:{data:{full_name:name}}});if(error){setMsg(error.message);return}if(data.user){await supabase.from('profiles').upsert({id:data.user.id,full_name:name.trim()||email,email:email},{onConflict:'id'})}setMsg('Cuenta creada correctamente.')}}catch(err){setMsg('Ocurrió un error inesperado. Intenta nuevamente.')}}
+ async function auth(e){e.preventDefault();setMsg('');try{if(mode==='login'){const {error}=await supabase.auth.signInWithPassword({email,password});if(error)setMsg(error.message);else setMsg('Sesión iniciada.')}else{const {data,error}=await supabase.auth.signUp({email,password,options:{data:{full_name:name}}});if(error){setMsg(error.message);return}if(data.user){await supabase.from('profiles').upsert({id:data.user.id,full_name:name.trim()||email,email:email},{onConflict:'id'});fetch(`${supabaseUrl}/functions/v1/send-email`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${supabaseKey}`},body:JSON.stringify({type:'new_client',client_name:name.trim()||email,client_email:email})}).catch(()=>{})}setMsg('Cuenta creada correctamente.')}}catch(err){setMsg('Ocurrió un error inesperado. Intenta nuevamente.')}}
  async function loadCases(){
   const {data,error}=await supabase
    .from('cases')
@@ -1023,7 +1023,9 @@ function AdminPanel({session,onOpenCase}){
    }
    if(saveError){setNotifError('No se pudo guardar: '+saveError.message);return}
    await supabase.rpc('record_audit_event',{p_action:'notification_sent',p_target_user_id:notifForm.user_id,p_details:{case_number:notifForm.case_number,court:notifForm.court}});
-   resetNotifForm();load();setMessage('Notificación guardada correctamente.');
+   const clientProfile=profiles.find(p=>p.id===notifForm.user_id);
+   fetch(`${supabaseUrl}/functions/v1/send-email`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${supabaseKey}`},body:JSON.stringify({type:'new_notification',client_email:clientProfile?.email||'',notif_title:notifForm.title.trim(),notif_message:notifForm.message.trim(),case_number:notifForm.case_number.trim()||null,court:notifForm.court.trim()||null,filing_date:notifForm.filing_date||null,attachment_url:notifForm.attachment_url.trim()||null})}).catch(()=>{});
+   resetNotifForm();load();setMessage('Notificación guardada y correo enviado al cliente.');
   }catch(err){
    setNotifError('Error inesperado al guardar. Intenta nuevamente.');
   }finally{
