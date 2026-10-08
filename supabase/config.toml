@@ -1,0 +1,3 @@
+[functions.export-cases-excel]
+verify_jwt = true
+entrypoint = "./functions/export-cases-excel/index.ts"
