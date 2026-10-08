@@ -1,7 +1,9 @@
 import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {createClient} from '@supabase/supabase-js';
-import { Scale, ShieldCheck, Upload, FolderOpen, ArrowRight, LogIn, LogOut, CirclePlus as PlusCircle, Clock3, FileText, Loader as Loader2, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, User, ChevronDown, ChevronRight, MapPin, Gavel, FileStack, Users, ArrowLeft, Download, Trash2, Calendar, MessageCircle, Plus, Activity, Settings, Search, LockKeyhole, UserCog, SquareCheck as CheckSquare, Bell, CreditCard as Edit3, EyeOff, Eye } from 'lucide-react';
+import { Scale, ShieldCheck, Upload, FolderOpen, ArrowRight, LogIn, LogOut, CirclePlus as PlusCircle, Clock3, FileText, Loader as Loader2, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, User, ChevronDown, ChevronRight, MapPin, Gavel, FileStack, Users, ArrowLeft, Download, Trash2, Calendar, MessageCircle, Plus, Activity, Settings, Search, LockKeyhole, UserCog, SquareCheck as CheckSquare, Bell, CreditCard as Edit3, EyeOff, Eye, Sparkles, FileCheck, RefreshCw, TriangleAlert as AlertTriangle } from 'lucide-react';
+import {buildInitialAnalysis,buildSecondReview,buildIntegratedReport} from './analysis';
+import {downloadWord,downloadPdf} from './analysisExports';
 import './styles.css';
 
 const supabaseUrl=import.meta.env.VITE_SUPABASE_URL;
@@ -440,6 +442,8 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
  const [caseData,setCaseData]=useState(null);
  const [documents,setDocuments]=useState([]);
  const [actions,setActions]=useState([]);
+ const [analysis,setAnalysis]=useState(null);
+ const [review,setReview]=useState(null);
  const [detailTab,setDetailTab]=useState('info');
  const [msg,setMsg]=useState('');
  const [msgType,setMsgType]=useState('');
@@ -457,6 +461,11 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
   setDocuments(docs||[]);
   const {data:acts}=await supabase.from('case_actions').select('*').eq('case_id',caseId).order('action_date',{ascending:false});
   setActions(acts||[]);
+  const [{data:analysisRow},{data:reviewRow}]=await Promise.all([
+   supabase.from('case_analyses').select('*').eq('case_id',caseId).maybeSingle(),
+   isAdmin?supabase.from('case_analysis_reviews').select('*').eq('case_id',caseId).maybeSingle():Promise.resolve({data:null})
+  ]);
+  setAnalysis(analysisRow||null);setReview(reviewRow||null);
   setLoading(false);
  }
 
@@ -519,6 +528,7 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
    <button className={detailTab==='info'?'tab active':'tab'} onClick={()=>setDetailTab('info')}><FileText size={17}/> Información</button>
    <button className={detailTab==='docs'?'tab active':'tab'} onClick={()=>setDetailTab('docs')}><FolderOpen size={17}/> Documentos ({documents.length})</button>
    <button className={detailTab==='followup'?'tab active':'tab'} onClick={()=>setDetailTab('followup')}><Activity size={17}/> Seguimiento ({actions.length})</button>
+   <button className={detailTab==='analysis'?'tab active':'tab'} onClick={()=>setDetailTab('analysis')}><Sparkles size={17}/> Análisis</button>
   </div>
 
   {detailTab==='info'&&<div className="detailInfo">
@@ -596,8 +606,49 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
    const {signedUrl,error}=await supabase.storage.from('case-documents').createSignedUrl(doc.storage_path,300);
    if(error||!signedUrl){setMsg('No se pudo generar el enlace.');setMsgType('error');return}
    window.open(signedUrl,'_blank');
-  }}/>}
+  }}/>} 
+  {detailTab==='analysis'&&<AnalysisPanel session={session} caseData={caseData} documents={documents} actions={actions} isAdmin={isAdmin} analysis={analysis} review={review} onSaved={(nextAnalysis,nextReview)=>{setAnalysis(nextAnalysis);setReview(nextReview)}} onMessage={(text,type)=>{setMsg(text);setMsgType(type)}}/>}
  </section>
+}
+function AnalysisPanel({session,caseData,documents,actions,isAdmin,analysis,review,onSaved,onMessage}){
+ const [working,setWorking]=useState(false);
+ const [activeView,setActiveView]=useState('initial');
+ const initial=analysis?.initial_analysis||null;
+ const integrated=analysis?.integrated_report||null;
+ function rows(value){return Array.isArray(value)?value:[value];}
+ async function generate(){
+  setWorking(true);
+  const nextInitial=buildInitialAnalysis(caseData,documents,actions);
+  const nextReview=isAdmin?buildSecondReview(nextInitial,caseData,documents,actions):review;
+  const nextIntegrated=buildIntegratedReport(caseData,nextInitial,isAdmin?nextReview:null);
+  const {data:user}=await supabase.auth.getUser();
+  const {data:savedAnalysis,error:analysisError}=await supabase.from('case_analyses').upsert({case_id:caseData.id,user_id:caseData.user_id,initial_analysis:nextInitial,integrated_report:nextIntegrated},{onConflict:'case_id'}).select().maybeSingle();
+  if(analysisError||!savedAnalysis){onMessage('No fue posible guardar el análisis. Inténtalo nuevamente.','error');setWorking(false);return}
+  let savedReview=review;
+  if(isAdmin&&nextReview){const {data:reviewRow,error:reviewError}=await supabase.from('case_analysis_reviews').upsert({case_id:caseData.id,user_id:caseData.user_id,second_review:nextReview,reviewed_by:user.user.id},{onConflict:'case_id'}).select().maybeSingle();if(reviewError||!reviewRow){onMessage('El análisis se guardó, pero la segunda revisión no pudo guardarse.','error');setWorking(false);onSaved(savedAnalysis,review);return}savedReview=reviewRow}
+  onSaved(savedAnalysis,savedReview);onMessage(isAdmin?'Análisis y segunda revisión actualizados.':'Análisis actualizado.','success');setWorking(false);
+ }
+ async function exportCurrent(type){
+  if(!integrated){onMessage('Genera el análisis antes de exportar el informe.','error');return}
+  try{
+   const report=integrated;
+   if(type==='word')downloadWord(caseData,report,isAdmin?review?.second_review:null);else await downloadPdf(caseData,report,isAdmin?review?.second_review:null);
+  }catch(error){
+   console.error('report export failed',error);onMessage('No fue posible generar el informe. Inténtalo nuevamente.','error');
+  }
+ }
+ const current=activeView==='initial'?initial:activeView==='review'?review?.second_review:integrated;
+ return <div className="analysisPanel">
+  <div className="analysisIntro"><div><div className="badge"><Sparkles size={14}/> Organización y análisis</div><h3>Análisis del caso</h3><p>Se utiliza únicamente la información registrada en este caso y sus documentos visibles. No se incorporan hechos, normas ni pruebas externas.</p></div><div className="analysisActions"><button className="primary" onClick={generate} disabled={working}>{working?<><Loader2 size={17} className="spin"/> Procesando...</>:<><RefreshCw size={17}/> {analysis?'Actualizar análisis':'Generar análisis'}</>}</button>{analysis&&<><button className="ghost sm" onClick={()=>exportCurrent('word')}><FileCheck size={15}/> Exportar Word</button><button className="ghost sm" onClick={()=>exportCurrent('pdf')}><Download size={15}/> Exportar PDF</button></>}</div></div>
+  {analysis&&<div className="analysisTabs"><button className={activeView==='initial'?'analysisTab active':'analysisTab'} onClick={()=>setActiveView('initial')}><FileText size={15}/> Análisis inicial</button>{isAdmin&&<button className={activeView==='review'?'analysisTab active':'analysisTab'} onClick={()=>setActiveView('review')}><AlertTriangle size={15}/> Segunda revisión</button>}<button className={activeView==='integrated'?'analysisTab active':'analysisTab'} onClick={()=>setActiveView('integrated')}><FileCheck size={15}/> Informe integrado</button></div>}
+  {!analysis?<div className="empty analysisEmpty"><Sparkles size={38}/><b>Aún no hay análisis guardado</b><span>Genera un análisis para ordenar la información disponible del caso.</span></div>:<AnalysisView value={current} view={activeView} isAdmin={isAdmin}/>} 
+  <div className="analysisWarning"><AlertTriangle size={17}/><span>LEXACASO organiza y analiza información. No sustituye el asesoramiento, representación o concepto de un abogado.</span></div>
+ </div>
+}
+function AnalysisView({value,view,isAdmin}){
+ if(!value)return <div className="empty"><AlertTriangle size={32}/><b>Segunda revisión no disponible</b><span>Solo un administrador autorizado puede generarla.</span></div>;
+ const sections=view==='initial'?[['Resumen',value.summary],['Hechos relevantes',value.relevant_facts],['Cronología',value.chronology?.map(item=>`${item.date} · ${item.title} · ${item.detail}`)],['Problemas jurídicos',value.legal_issues],['Derechos e intereses',value.rights_interests],['Actuaciones pendientes',value.pending_actions],['Plazos y fechas',value.deadlines?.map(item=>`${item.label}: ${item.value}`)],['Documentos relevantes',value.relevant_documents],['Inconsistencias',value.inconsistencies],['Posibles líneas de actuación',value.possible_actions],['Fuentes jurídicas',value.legal_sources],['Riesgos',value.risks],['Información faltante',value.missing_information]]:view==='review'?[['Errores de interpretación',value.interpretation_errors],['Hechos omitidos',value.omitted_facts],['Contradicciones',value.contradictions],['Documentos no considerados',value.documents_not_considered],['Fechas a verificar',value.date_checks],['Argumentos débiles',value.weak_arguments],['Información faltante',value.missing_information],['Notas de verificación',value.verification_notes]]:[['Identificación del caso',[`Título: ${value.case_identification?.title}`,`Radicado: ${value.case_identification?.case_number}`,`Categoría: ${value.case_identification?.category}`,`Autoridad: ${value.case_identification?.authority}`]],['Resumen',value.summary],['Hechos',value.facts],['Cronología',value.chronology?.map(item=>`${item.date} · ${item.title} · ${item.detail}`)],['Documentos',value.documents],['Plazos',value.deadlines?.map(item=>`${item.label}: ${item.value}`)],['Problemas jurídicos',value.legal_issues],['Posibles actuaciones',value.possible_actions],['Fuentes',value.sources],['Observaciones',value.observations],['Información pendiente',value.pending_information]];
+ return <div className="analysisView">{sections.map(([title,content])=><article className="analysisCard" key={title}><h4>{title}</h4>{(Array.isArray(content)?content:[content||'No disponible.']).map((item,index)=><p key={`${title}-${index}`}>{typeof item==='object'?JSON.stringify(item):item}</p>)}</article>)}</div>;
 }
 function FollowupTab({session,caseId,isAdmin,actions,onRefresh,statusLabel,downloadActionDoc}){
  const [showForm,setShowForm]=useState(false);
