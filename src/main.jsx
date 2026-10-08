@@ -1,7 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {createClient} from '@supabase/supabase-js';
-import {Scale,ShieldCheck,Upload,FolderOpen,ArrowRight,LogIn,LogOut,CirclePlus as PlusCircle,Clock3,FileText,Loader2,AlertCircle,CheckCircle2,User,ChevronDown,ChevronRight,MapPin,Gavel,FileStack,Users} from 'lucide-react';
+import {Scale,ShieldCheck,Upload,FolderOpen,ArrowRight,LogIn,LogOut,CirclePlus as PlusCircle,Clock3,FileText,Loader2,AlertCircle,CheckCircle2,User,ChevronDown,ChevronRight,MapPin,Gavel,FileStack,Users,ArrowLeft,Download,Trash2,Eye,EyeOff,Calendar,Clock,MessageCircle,Plus,Activity} from 'lucide-react';
 import './styles.css';
 
 const supabaseUrl=import.meta.env.VITE_SUPABASE_URL;
@@ -28,11 +28,26 @@ const LEGAL_CATALOG=[
  {name:'Incidente',sub:[]},
  {name:'Medida cautelar',sub:[]},
  {name:'Acción de grupo',sub:[]},
- {name:'Otro',sub:[]}
+ {name:'Otro',sub:[]},
+ {name:'No sé / necesito orientación',sub:[]}
 ];
 const DEPARTMENTS=['Amazonas','Antioquia','Arauca','Atlántico','Bolívar','Boyacá','Caldas','Caquetá','Casanare','Cauca','Cesar','Chocó','Córdoba','Cundinamarca','Bogotá D.C.','Guainía','Guaviare','Huila','La Guajira','Magdalena','Meta','Nariño','Norte de Santander','Putumayo','Quindío','Risaralda','San Andrés y Providencia','Santander','Sucre','Tolima','Valle del Cauca','Vaupés','Vichada'];
 const AUTHORITY_TYPES=['Juzgado Civil','Juzgado Penal','Juzgado Laboral','Juzgado de Familia','Juzgado de Ejecución de Penas','Juzgado Promiscuo','Tribunal Superior','Consejo de Estado','Corte Suprema de Justicia','Corte Constitucional','Jurisdicción Especial para la Paz','Autoridad Administrativa','Entidad Pública','No sé','Otro'];
 const DOCUMENT_TYPES=['Demanda','Tutela','Poder','Memorial','Auto','Sentencia','Decreto','Resolución','Acta','Contrato','Factura','Pagaré','Letra de cambio','Cheque','Otro documento','No sé'];
+const TERM_DURATIONS=['3 días','5 días','10 días','15 días','30 días','Otro'];
+const ACTION_TYPES=['Demanda presentada','Derecho de petición','Audiencia','Notificación','Auto','Sentencia','Recurso','Oficio','Reunión','Recolección de pruebas','Respuesta de entidad','Otro'];
+const ACTION_STATUSES=[
+ {value:'pending',label:'Pendiente'},
+ {value:'in_progress',label:'En trámite'},
+ {value:'completed',label:'Realizada'},
+ {value:'received',label:'Recibida'},
+ {value:'replied',label:'Respondida'},
+ {value:'expired',label:'Vencida'},
+ {value:'finalized',label:'Finalizada'},
+ {value:'cancelled',label:'Cancelada'}
+];
+const WHATSAPP_NUMBER='57310560386';
+const WHATSAPP_MSG='Hola, necesito ayuda con mi caso en LEXACASO.';
 
 function App(){
  const [session,setSession]=useState(null),[mode,setMode]=useState('home'),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[name,setName]=useState(''),[msg,setMsg]=useState(''),[cases,setCases]=useState([]);
@@ -50,7 +65,7 @@ function App(){
  async function loadCases(){
   const {data,error}=await supabase
    .from('cases')
-   .select('id,title,status,priority,created_at,legal_category,legal_subcategory,acting_as')
+   .select('id,title,status,priority,created_at,legal_category,legal_subcategory,acting_as,has_deadline,term_end_date')
    .eq('user_id',session.user.id)
    .order('created_at',{ascending:false});
   if(error){
@@ -68,7 +83,15 @@ function App(){
    {session&&<Dashboard session={session} cases={cases} refresh={loadCases}/>}
   </main>
   <footer>Plataforma de orientación e información jurídica y análisis documental automatizado · No constituye representación legal.</footer>
+  <WhatsAppButton/>
  </div>
+}
+function WhatsAppButton(){
+ const waUrl=`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(WHATSAPP_MSG)}`;
+ return <a href={waUrl} target="_blank" rel="noopener noreferrer" className="waButton" title="¿Necesitas ayuda? Escríbenos por WhatsApp.">
+  <MessageCircle size={26}/>
+  <span className="waTooltip">¿Necesitas ayuda? Escríbenos por WhatsApp.</span>
+ </a>
 }
 function Dashboard({session,cases,refresh}){
  const [tab,setTab]=useState('cases');
@@ -77,6 +100,7 @@ function Dashboard({session,cases,refresh}){
  const [msgType,setMsgType]=useState('');
  const [caseNumber,setCaseNumber]=useState('');
  const [profileData,setProfileData]=useState(null);
+ const [selectedCaseId,setSelectedCaseId]=useState(null);
 
  async function loadProfile(){
   const {data}=await supabase
@@ -92,6 +116,10 @@ function Dashboard({session,cases,refresh}){
   setMsg('');
   setMsgType('');
   setCaseNumber('');
+ }
+
+ if(selectedCaseId){
+  return <CaseDetail session={session} caseId={selectedCaseId} onBack={()=>{setSelectedCaseId(null);refresh()}}/>
  }
 
  return <section className="dashboard">
@@ -114,9 +142,17 @@ function Dashboard({session,cases,refresh}){
     <span>{msg}</span>
     {caseNumber&&<div className="caseNumberLabel">Número de caso: <strong>{caseNumber}</strong></div>}
    </div>}
-   {open&&<CaseForm session={session} profileData={profileData} saving={false} onClose={closeForm} onSaved={(id,m,t)=>{setCaseNumber(id);setMsg(m);setMsgType(t);refresh();}}/>}
+   {open&&<CaseForm session={session} profileData={profileData} onClose={closeForm} onSaved={(id,m,t)=>{setCaseNumber(id);setMsg(m);setMsgType(t);refresh();}}/>}
    <div className="caseList">
-    {cases.length?cases.map(c=><article className="case" key={c.id}><FolderOpen size={22}/><div><b>{c.title}</b><span>{[c.legal_category,c.legal_subcategory,c.acting_as==='representative'?'En representación':null].filter(Boolean).join(' · ')||c.status==='received'?'Recibido':c.status}</span></div><Clock3 size={17}/></article>):<div className="empty"><FolderOpen size={38}/><b>Aún no tienes casos</b><span>Comienza con "Nuevo caso".</span></div>}
+    {cases.length?cases.map(c=>{
+     const deadlineInfo=c.has_deadline==='yes'&&c.term_end_date?`Vence: ${c.term_end_date}`:null;
+     const subInfo=[c.legal_category,c.legal_subcategory,c.acting_as==='representative'?'En representación':null,deadlineInfo].filter(Boolean).join(' · ');
+     return <article className="case clickable" key={c.id} onClick={()=>setSelectedCaseId(c.id)}>
+      <FolderOpen size={22}/>
+      <div><b>{c.title}</b><span>{subInfo||c.status==='received'?'Recibido':c.status}</span></div>
+      <ArrowRight size={17}/>
+     </article>
+    }):<div className="empty"><FolderOpen size={38}/><b>Aún no tienes casos</b><span>Comienza con "Nuevo caso".</span></div>}
    </div>
   </>}
   {tab==='profile'&&<ProfileForm session={session}/>}
@@ -155,27 +191,39 @@ function CaseForm({session,profileData,onClose,onSaved}){
  const [dependency,setDependency]=useState('');
  const [caseNumberInput,setCaseNumberInput]=useState('');
  const [documentType,setDocumentType]=useState('');
+ const [hasDeadline,setHasDeadline]=useState('unknown');
+ const [termDuration,setTermDuration]=useState('');
+ const [termCustomDuration,setTermCustomDuration]=useState('');
+ const [termStartDate,setTermStartDate]=useState('');
+ const [termEndDate,setTermEndDate]=useState('');
  const [formError,setFormError]=useState('');
+
+ useEffect(()=>{
+  if(hasDeadline==='yes'&&termDuration&&termDuration!=='Otro'&&termStartDate){
+   const days=parseInt(termDuration);
+   if(!isNaN(days)){
+    const start=new Date(termStartDate);
+    start.setDate(start.getDate()+days);
+    setTermEndDate(start.toISOString().split('T')[0]);
+   }
+  }
+ },[hasDeadline,termDuration,termStartDate]);
+
+ function getFinalDuration(){
+  if(termDuration==='Otro') return termCustomDuration.trim()||null;
+  return termDuration||null;
+ }
 
  async function createCase(e){
   e.preventDefault();
   setFormError('');
-  if(!title.trim()){
-   setFormError('El título del caso es obligatorio.');
-   return;
-  }
-  if(!legalCategory){
-   setFormError('Debes seleccionar una categoría jurídica.');
-   return;
-  }
+  if(!title.trim()){setFormError('El título del caso es obligatorio.');return}
+  if(!legalCategory){setFormError('Debes seleccionar una categoría jurídica.');return}
   const catEntry=LEGAL_CATALOG.find(c=>c.name===legalCategory);
-  if(catEntry&&catEntry.sub.length>0&&!legalSubcategory){
-   setFormError('Debes seleccionar una sub-categoría para "'+legalCategory+'".');
-   return;
-  }
-  if(actingAs==='representative'&&!repName.trim()){
-   setFormError('Cuando actúas en representación, el nombre de la persona representada es obligatorio.');
-   return;
+  if(catEntry&&catEntry.sub.length>0&&!legalSubcategory){setFormError('Debes seleccionar una sub-categoría para "'+legalCategory+'".');return}
+  if(actingAs==='representative'&&!repName.trim()){setFormError('Cuando actúas en representación, el nombre de la persona representada es obligatorio.');return}
+  if(hasDeadline==='yes'&&termStartDate&&termEndDate){
+   if(new Date(termEndDate)<new Date(termStartDate)){setFormError('La fecha límite no puede ser anterior a la fecha de inicio.');return}
   }
   setSaving(true);
   try {
@@ -199,42 +247,29 @@ function CaseForm({session,profileData,onClose,onSaved}){
     entity:entity.trim()||null,
     dependency:dependency.trim()||null,
     case_number:caseNumberInput.trim()||null,
-    document_type_received:documentType||null
+    document_type_received:documentType||null,
+    has_deadline:hasDeadline,
+    term_duration:hasDeadline==='yes'?(getFinalDuration()):null,
+    term_start_date:hasDeadline==='yes'?(termStartDate||null):null,
+    term_end_date:hasDeadline==='yes'?(termEndDate||null):null
    };
-   const {data:c,error}=await supabase
-    .from('cases')
-    .insert(caseData)
-    .select()
-    .single();
-   if(error){
-    setFormError('No se pudo guardar el caso: '+error.message);
-    setSaving(false);
-    return;
-   }
+   const {data:c,error}=await supabase.from('cases').insert(caseData).select().single();
+   if(error){setFormError('No se pudo guardar el caso: '+error.message);setSaving(false);return}
    if(file){
     const path=user.user.id+'/'+c.id+'/'+file.name;
     const up=await supabase.storage.from('case-documents').upload(path,file);
     if(up.error){
      setFormError('El caso se guardó pero no se pudo subir el documento: '+up.error.message);
      onSaved(c.id,'El caso se guardó pero el documento falló. Número: '+c.id,'error');
-     setSaving(false);
-     return;
+     setSaving(false);return;
     }
-    const ins=await supabase.from('case_documents').insert({
-     case_id:c.id,
-     user_id:user.user.id,
-     file_name:file.name,
-     storage_path:path,
-     content_type:file.type||null
-    });
+    const ins=await supabase.from('case_documents').insert({case_id:c.id,user_id:user.user.id,file_name:file.name,storage_path:path,content_type:file.type||null,visible_to_client:true});
     if(ins.error){
      setFormError('El caso se guardó y el documento se subió, pero no se registró en la base de datos: '+ins.error.message);
      onSaved(c.id,'Caso guardado con problema en el documento. Número: '+c.id,'error');
-     setSaving(false);
-     return;
+     setSaving(false);return;
     }
    }
-   // Success — reset everything
    resetForm();
    onSaved(c.id,'Caso guardado correctamente.','success');
   } catch(err){
@@ -250,12 +285,12 @@ function CaseForm({session,profileData,onClose,onSaved}){
   setLegalCategory('');setLegalSubcategory('');
   setDepartment('');setMunicipality('');setAuthorityType('');setAuthorityName('');
   setEntity('');setDependency('');setCaseNumberInput('');setDocumentType('');
+  setHasDeadline('unknown');setTermDuration('');setTermCustomDuration('');setTermStartDate('');setTermEndDate('');
  }
 
  return <form className="caseForm extended" onSubmit={createCase}>
   {formError&&<div className="notice error"><AlertCircle size={18}/><span>{formError}</span></div>}
 
-  {/* Section 1: Applicant data (pre-filled from profile) */}
   <CollapsibleSection title="Datos del solicitante" icon={User} defaultOpen={true}>
    <div className="sectionHint">
     {profileData?(
@@ -266,7 +301,6 @@ function CaseForm({session,profileData,onClose,onSaved}){
    </div>
   </CollapsibleSection>
 
-  {/* Section 2: Representation */}
   <CollapsibleSection title="Representación" icon={Users} defaultOpen={true}>
    <div className="formGroup">
     <label>¿Actúas en nombre propio o en representación de otra persona?</label>
@@ -291,23 +325,13 @@ function CaseForm({session,profileData,onClose,onSaved}){
      <input value={repName} onChange={e=>setRepName(e.target.value)} disabled={saving} placeholder="Nombre completo"/>
     </div>
     <div className="formGrid2">
-     <div className="formGroup">
-      <label>Cédula de la persona representada</label>
-      <input value={repCedula} onChange={e=>setRepCedula(e.target.value)} disabled={saving} placeholder="Opcional"/>
-     </div>
-     <div className="formGroup">
-      <label>Celular de la persona representada</label>
-      <input value={repPhone} onChange={e=>setRepPhone(e.target.value)} disabled={saving} placeholder="Opcional"/>
-     </div>
+     <div className="formGroup"><label>Cédula de la persona representada</label><input value={repCedula} onChange={e=>setRepCedula(e.target.value)} disabled={saving} placeholder="Opcional"/></div>
+     <div className="formGroup"><label>Celular de la persona representada</label><input value={repPhone} onChange={e=>setRepPhone(e.target.value)} disabled={saving} placeholder="Opcional"/></div>
     </div>
-    <div className="formGroup">
-     <label>Dirección de la persona representada</label>
-     <input value={repAddress} onChange={e=>setRepAddress(e.target.value)} disabled={saving} placeholder="Opcional"/>
-    </div>
+    <div className="formGroup"><label>Dirección de la persona representada</label><input value={repAddress} onChange={e=>setRepAddress(e.target.value)} disabled={saving} placeholder="Opcional"/></div>
    </>}
   </CollapsibleSection>
 
-  {/* Section 3: Legal category */}
   <CollapsibleSection title="Categoría jurídica" icon={Gavel} defaultOpen={true} required>
    <div className="formGroup">
     <label>Categoría jurídica principal <span className="req">*</span></label>
@@ -327,87 +351,337 @@ function CaseForm({session,profileData,onClose,onSaved}){
    ):null}
   </CollapsibleSection>
 
-  {/* Section 4: Location and authority */}
   <CollapsibleSection title="Ubicación y despacho" icon={MapPin} defaultOpen={false}>
    <div className="formGrid2">
-    <div className="formGroup">
-     <label>Departamento</label>
-     <select value={department} onChange={e=>{setDepartment(e.target.value);setMunicipality('')}} disabled={saving}>
-      <option value="">No sé / Dejar vacío</option>
-      {DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}
-     </select>
-    </div>
-    <div className="formGroup">
-     <label>Municipio</label>
-     <input value={municipality} onChange={e=>setMunicipality(e.target.value)} disabled={saving} placeholder="No sé / Dejar vacío"/>
-    </div>
+    <div className="formGroup"><label>Departamento</label><select value={department} onChange={e=>{setDepartment(e.target.value);setMunicipality('')}} disabled={saving}><option value="">No sé / Dejar vacío</option>{DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select></div>
+    <div className="formGroup"><label>Municipio</label><input value={municipality} onChange={e=>setMunicipality(e.target.value)} disabled={saving} placeholder="No sé / Dejar vacío"/></div>
    </div>
    <div className="formGrid2">
-    <div className="formGroup">
-     <label>Tipo de autoridad / despacho</label>
-     <select value={authorityType} onChange={e=>setAuthorityType(e.target.value)} disabled={saving}>
-      <option value="">No sé / Dejar vacío</option>
-      {AUTHORITY_TYPES.map(a=><option key={a} value={a}>{a}</option>)}
-     </select>
-    </div>
-    <div className="formGroup">
-     <label>Nombre del despacho / autoridad</label>
-     <input value={authorityName} onChange={e=>setAuthorityName(e.target.value)} disabled={saving} placeholder="No sé / Dejar vacío"/>
-    </div>
+    <div className="formGroup"><label>Tipo de autoridad / despacho</label><select value={authorityType} onChange={e=>setAuthorityType(e.target.value)} disabled={saving}><option value="">No sé / Dejar vacío</option>{AUTHORITY_TYPES.map(a=><option key={a} value={a}>{a}</option>)}</select></div>
+    <div className="formGroup"><label>Nombre del despacho / autoridad</label><input value={authorityName} onChange={e=>setAuthorityName(e.target.value)} disabled={saving} placeholder="No sé / Dejar vacío"/></div>
    </div>
   </CollapsibleSection>
 
-  {/* Section 5: Process data */}
   <CollapsibleSection title="Datos del proceso" icon={FileStack} defaultOpen={false}>
    <div className="formGrid2">
-    <div className="formGroup">
-     <label>Entidad (para asuntos no judiciales)</label>
-     <input value={entity} onChange={e=>setEntity(e.target.value)} disabled={saving} placeholder="No sé / Dejar vacío"/>
-    </div>
-    <div className="formGroup">
-     <label>Dependencia</label>
-     <input value={dependency} onChange={e=>setDependency(e.target.value)} disabled={saving} placeholder="No sé / Dejar vacío"/>
-    </div>
+    <div className="formGroup"><label>Entidad (para asuntos no judiciales)</label><input value={entity} onChange={e=>setEntity(e.target.value)} disabled={saving} placeholder="No sé / Dejar vacío"/></div>
+    <div className="formGroup"><label>Dependencia</label><input value={dependency} onChange={e=>setDependency(e.target.value)} disabled={saving} placeholder="No sé / Dejar vacío"/></div>
    </div>
    <div className="formGrid2">
-    <div className="formGroup">
-     <label>Número de proceso / radicado</label>
-     <input value={caseNumberInput} onChange={e=>setCaseNumberInput(e.target.value)} disabled={saving} placeholder="No sé / Dejar vacío"/>
+    <div className="formGroup"><label>Número de proceso / radicado</label><input value={caseNumberInput} onChange={e=>setCaseNumberInput(e.target.value)} disabled={saving} placeholder="No sé / Dejar vacío"/></div>
+    <div className="formGroup"><label>Tipo de documento recibido</label><select value={documentType} onChange={e=>setDocumentType(e.target.value)} disabled={saving}><option value="">No sé / Dejar vacío</option>{DOCUMENT_TYPES.map(d=><option key={d} value={d}>{d}</option>)}</select></div>
+   </div>
+  </CollapsibleSection>
+
+  <CollapsibleSection title="Términos y vencimientos" icon={Calendar} defaultOpen={false}>
+   <div className="formGroup">
+    <label>¿Existe un plazo o término?</label>
+    <div className="radioRow">
+     <label className={hasDeadline==='yes'?'radioOpt active':'radioOpt'}><input type="radio" name="hasDeadline" value="yes" checked={hasDeadline==='yes'} onChange={()=>setHasDeadline('yes')} disabled={saving}/>Sí</label>
+     <label className={hasDeadline==='no'?'radioOpt active':'radioOpt'}><input type="radio" name="hasDeadline" value="no" checked={hasDeadline==='no'} onChange={()=>setHasDeadline('no')} disabled={saving}/>No</label>
+     <label className={hasDeadline==='unknown'?'radioOpt active':'radioOpt'}><input type="radio" name="hasDeadline" value="unknown" checked={hasDeadline==='unknown'} onChange={()=>setHasDeadline('unknown')} disabled={saving}/>No sé</label>
     </div>
+   </div>
+   {hasDeadline==='yes'&&<>
     <div className="formGroup">
-     <label>Tipo de documento recibido</label>
-     <select value={documentType} onChange={e=>setDocumentType(e.target.value)} disabled={saving}>
-      <option value="">No sé / Dejar vacío</option>
-      {DOCUMENT_TYPES.map(d=><option key={d} value={d}>{d}</option>)}
+     <label>Duración del término</label>
+     <select value={termDuration} onChange={e=>setTermDuration(e.target.value)} disabled={saving}>
+      <option value="">Selecciona...</option>
+      {TERM_DURATIONS.map(d=><option key={d} value={d}>{d}</option>)}
      </select>
     </div>
-   </div>
+    {termDuration==='Otro'&&<div className="formGroup"><label>Especifica la duración</label><input value={termCustomDuration} onChange={e=>setTermCustomDuration(e.target.value)} disabled={saving} placeholder="Ej: 45 días"/></div>}
+    <div className="formGrid2">
+     <div className="formGroup"><label>Fecha de inicio</label><input type="date" value={termStartDate} onChange={e=>setTermStartDate(e.target.value)} disabled={saving}/></div>
+     <div className="formGroup"><label>Fecha límite (calculada o manual)</label><input type="date" value={termEndDate} onChange={e=>setTermEndDate(e.target.value)} disabled={saving}/></div>
+    </div>
+   </>}
   </CollapsibleSection>
 
-  {/* Core: title and facts */}
   <CollapsibleSection title="Hechos del caso" icon={FileText} defaultOpen={true}>
-   <div className="formGroup">
-    <label>Título del caso <span className="req">*</span></label>
-    <input value={title} onChange={e=>setTitle(e.target.value)} disabled={saving} placeholder="Ej: Cobro de honorarios profesionales"/>
-   </div>
-   <div className="formGroup">
-    <label>Hechos principales</label>
-    <textarea value={facts} onChange={e=>setFacts(e.target.value)} rows="5" disabled={saving} placeholder="Cuéntanos los hechos principales..."/>
-   </div>
+   <div className="formGroup"><label>Título del caso <span className="req">*</span></label><input value={title} onChange={e=>setTitle(e.target.value)} disabled={saving} placeholder="Ej: Cobro de honorarios profesionales"/></div>
+   <div className="formGroup"><label>Hechos principales</label><textarea value={facts} onChange={e=>setFacts(e.target.value)} rows="5" disabled={saving} placeholder="Cuéntanos los hechos principales..."/></div>
   </CollapsibleSection>
 
-  {/* Document upload */}
   <div className="formGroup">
    <label className="upload"><Upload size={20}/><span>{file?file.name:'Adjuntar documento (opcional)'}</span><input type="file" onChange={e=>setFile(e.target.files?.[0]||null)} disabled={saving}/></label>
   </div>
-
   <div className="row">
-   <button type="submit" className="primary" disabled={saving}>
-    {saving?<><Loader2 size={18} className="spin"/> Guardando...</>:'Guardar caso'}
-   </button>
+   <button type="submit" className="primary" disabled={saving}>{saving?<><Loader2 size={18} className="spin"/> Guardando...</>:'Guardar caso'}</button>
    <button type="button" className="ghost" onClick={onClose} disabled={saving}>Cancelar</button>
   </div>
  </form>
+}
+function CaseDetail({session,caseId,onBack}){
+ const [loading,setLoading]=useState(true);
+ const [caseData,setCaseData]=useState(null);
+ const [documents,setDocuments]=useState([]);
+ const [actions,setActions]=useState([]);
+ const [detailTab,setDetailTab]=useState('info');
+ const [msg,setMsg]=useState('');
+ const [msgType,setMsgType]=useState('');
+ const [uploadingFile,setUploadingFile]=useState(false);
+ const [showAddAction,setShowAddAction]=useState(false);
+
+ useEffect(()=>{loadAll()},[caseId]);
+
+ async function loadAll(){
+  setLoading(true);
+  const {data:c,error:ce}=await supabase.from('cases').select('*').eq('id',caseId).maybeSingle();
+  if(ce||!c){setMsg('No se pudo cargar el caso.');setMsgType('error');setLoading(false);return}
+  setCaseData(c);
+  const {data:docs}=await supabase.from('case_documents').select('*').eq('case_id',caseId).order('created_at',{ascending:false});
+  setDocuments(docs||[]);
+  const {data:acts}=await supabase.from('case_actions').select('*').eq('case_id',caseId).order('action_date',{ascending:false});
+  setActions(acts||[]);
+  setLoading(false);
+ }
+
+ async function downloadDoc(doc){
+  const {data,signedUrl,error}=await supabase.storage.from('case-documents').createSignedUrl(doc.storage_path,300);
+  if(error||!signedUrl){setMsg('No se pudo generar el enlace de descarga.');setMsgType('error');return}
+  window.open(signedUrl,'_blank');
+ }
+
+ async function deleteDoc(doc){
+  if(!confirm('¿Eliminar este documento?')) return;
+  await supabase.storage.from('case-documents').remove([doc.storage_path]);
+  const {error}=await supabase.from('case_documents').delete().eq('id',doc.id);
+  if(error){setMsg('No se pudo eliminar: '+error.message);setMsgType('error');return}
+  setMsg('Documento eliminado.');setMsgType('success');
+  loadAll();
+ }
+
+ async function uploadDoc(e){
+  const f=e.target.files?.[0];
+  if(!f) return;
+  setUploadingFile(true);
+  setMsg('');setMsgType('');
+  const path=session.user.id+'/'+caseId+'/'+f.name;
+  const up=await supabase.storage.from('case-documents').upload(path,f);
+  if(up.error){setMsg('No se pudo subir: '+up.error.message);setMsgType('error');setUploadingFile(false);return}
+  const ins=await supabase.from('case_documents').insert({case_id:caseId,user_id:session.user.id,file_name:f.name,storage_path:path,content_type:f.type||null,visible_to_client:true});
+  if(ins.error){setMsg('No se pudo registrar: '+ins.error.message);setMsgType('error');setUploadingFile(false);return}
+  setMsg('Documento subido correctamente.');setMsgType('success');
+  setUploadingFile(false);
+  loadAll();
+ }
+
+ function statusLabel(s){
+  const found=ACTION_STATUSES.find(a=>a.value===s);
+  return found?found.label:s;
+ }
+
+ if(loading) return <div className="profileLoading"><Loader2 size={28} className="spin"/><span>Cargando caso...</span></div>;
+ if(!caseData) return <div className="profileLoading"><AlertCircle size={28}/><span>{msg||'Caso no encontrado.'}</span></div>;
+
+ return <section className="dashboard">
+  <button className="back" onClick={onBack}><ArrowLeft size={17}/> Volver a mis casos</button>
+  <div className="dashHead">
+   <div>
+    <div className="badge">Detalle del caso</div>
+    <h2>{caseData.title}</h2>
+    <p>{[caseData.legal_category,caseData.legal_subcategory].filter(Boolean).join(' · ')||'Sin categoría'}</p>
+   </div>
+  </div>
+  {msg&&<div className={msgType==='error'?'notice error':msgType==='success'?'notice success':'notice'}>
+   {msgType==='error'&&<AlertCircle size={18}/>}
+   {msgType==='success'&&<CheckCircle2 size={18}/>}
+   <span>{msg}</span>
+  </div>}
+  <div className="tabs">
+   <button className={detailTab==='info'?'tab active':'tab'} onClick={()=>setDetailTab('info')}><FileText size={17}/> Información</button>
+   <button className={detailTab==='docs'?'tab active':'tab'} onClick={()=>setDetailTab('docs')}><FolderOpen size={17}/> Documentos ({documents.length})</button>
+   <button className={detailTab==='followup'?'tab active':'tab'} onClick={()=>setDetailTab('followup')}><Activity size={17}/> Seguimiento ({actions.length})</button>
+  </div>
+
+  {detailTab==='info'&&<div className="detailInfo">
+   <div className="detailCard">
+    <h3><User size={18}/> Solicitante</h3>
+    <div className="detailGrid">
+     <div><span className="detailLabel">Actúa como</span><span className="detailVal">{caseData.acting_as==='representative'?'Representación':'Nombre propio'}</span></div>
+     {caseData.acting_as==='representative'&&<>
+      <div><span className="detailLabel">Persona representada</span><span className="detailVal">{caseData.represented_person_name||'—'}</span></div>
+      <div><span className="detailLabel">Relación</span><span className="detailVal">{caseData.representative_relationship||'—'}</span></div>
+      {caseData.represented_person_cedula&&<div><span className="detailLabel">Cédula rep.</span><span className="detailVal">{caseData.represented_person_cedula}</span></div>}
+     </>}
+    </div>
+   </div>
+   <div className="detailCard">
+    <h3><Gavel size={18}/> Categoría jurídica</h3>
+    <div className="detailGrid">
+     <div><span className="detailLabel">Categoría</span><span className="detailVal">{caseData.legal_category||'—'}</span></div>
+     <div><span className="detailLabel">Sub-categoría</span><span className="detailVal">{caseData.legal_subcategory||'—'}</span></div>
+    </div>
+   </div>
+   <div className="detailCard">
+    <h3><MapPin size={18}/> Ubicación y despacho</h3>
+    <div className="detailGrid">
+     <div><span className="detailLabel">Departamento</span><span className="detailVal">{caseData.department||'—'}</span></div>
+     <div><span className="detailLabel">Municipio</span><span className="detailVal">{caseData.municipality||'—'}</span></div>
+     <div><span className="detailLabel">Tipo de autoridad</span><span className="detailVal">{caseData.authority_type||'—'}</span></div>
+     <div><span className="detailLabel">Despacho</span><span className="detailVal">{caseData.authority_name||'—'}</span></div>
+    </div>
+   </div>
+   <div className="detailCard">
+    <h3><FileStack size={18}/> Datos del proceso</h3>
+    <div className="detailGrid">
+     <div><span className="detailLabel">Entidad</span><span className="detailVal">{caseData.entity||'—'}</span></div>
+     <div><span className="detailLabel">Dependencia</span><span className="detailVal">{caseData.dependency||'—'}</span></div>
+     <div><span className="detailLabel">Radicado</span><span className="detailVal">{caseData.case_number||'—'}</span></div>
+     <div><span className="detailLabel">Doc. recibido</span><span className="detailVal">{caseData.document_type_received||'—'}</span></div>
+    </div>
+   </div>
+   <div className="detailCard">
+    <h3><Calendar size={18}/> Términos y vencimientos</h3>
+    <div className="detailGrid">
+     <div><span className="detailLabel">¿Tiene plazo?</span><span className="detailVal">{caseData.has_deadline==='yes'?'Sí':caseData.has_deadline==='no'?'No':'No sabe'}</span></div>
+     {caseData.has_deadline==='yes'&&<>
+      <div><span className="detailLabel">Duración</span><span className="detailVal">{caseData.term_duration||'—'}</span></div>
+      <div><span className="detailLabel">Fecha inicio</span><span className="detailVal">{caseData.term_start_date||'—'}</span></div>
+      <div><span className="detailLabel">Fecha límite</span><span className="detailVal">{caseData.term_end_date||'—'}</span></div>
+     </>}
+    </div>
+   </div>
+   {caseData.facts&&<div className="detailCard">
+    <h3><FileText size={18}/> Hechos</h3>
+    <p className="detailFacts">{caseData.facts}</p>
+   </div>}
+  </div>}
+
+  {detailTab==='docs'&&<div className="detailDocs">
+   <label className="upload"><Upload size={20}/><span>{uploadingFile?'Subiendo...':'Añadir documento'}</span><input type="file" onChange={uploadDoc} disabled={uploadingFile}/></label>
+   <div className="docList">
+    {documents.length?documents.map(d=><div className="docItem" key={d.id}>
+     <FileText size={20}/>
+     <div className="docInfo"><b>{d.file_name}</b><span>{d.visible_to_client?'Visible':'Interno'}</span></div>
+     <div className="docActions">
+      <button className="ghost sm" onClick={()=>downloadDoc(d)}><Download size={16}/> Descargar</button>
+      <button className="ghost sm danger" onClick={()=>deleteDoc(d)}><Trash2 size={16}/></button>
+     </div>
+    </div>):<div className="empty"><FileText size={38}/><b>Sin documentos</b><span>Sube documentos relacionados con tu caso.</span></div>}
+   </div>
+  </div>}
+
+  {detailTab==='followup'&&<FollowupTab session={session} caseId={caseId} actions={actions} onRefresh={loadAll} statusLabel={statusLabel} downloadActionDoc={async(doc)=>{
+   const {signedUrl,error}=await supabase.storage.from('case-documents').createSignedUrl(doc.storage_path,300);
+   if(error||!signedUrl){setMsg('No se pudo generar el enlace.');setMsgType('error');return}
+   window.open(signedUrl,'_blank');
+  }}/>}
+ </section>
+}
+function FollowupTab({session,caseId,actions,onRefresh,statusLabel,downloadActionDoc}){
+ const [showForm,setShowForm]=useState(false);
+ const [actionType,setActionType]=useState('');
+ const [actionTitle,setActionTitle]=useState('');
+ const [actionDesc,setActionDesc]=useState('');
+ const [actionDate,setActionDate]=useState(new Date().toISOString().split('T')[0]);
+ const [actionStatus,setActionStatus]=useState('pending');
+ const [actionFile,setActionFile]=useState(null);
+ const [savingAction,setSavingAction]=useState(false);
+ const [actionDocs,setActionDocs]=useState({});
+ const [formError,setFormError]=useState('');
+
+ async function loadActionDocs(actionId){
+  if(actionDocs[actionId]) return;
+  const {data}=await supabase.from('action_documents').select('*').eq('action_id',actionId);
+  setActionDocs(prev=>({...prev,[actionId]:data||[]}));
+ }
+
+ async function createAction(e){
+  e.preventDefault();
+  setFormError('');
+  if(!actionType){setFormError('Selecciona un tipo de gestión.');return}
+  if(!actionTitle.trim()){setFormError('El título de la gestión es obligatorio.');return}
+  setSavingAction(true);
+  const {data:user}=await supabase.auth.getUser();
+  const {data:act,error}=await supabase.from('case_actions').insert({
+   case_id:caseId,
+   created_by:user.user.id,
+   action_type:actionType,
+   title:actionTitle.trim(),
+   description:actionDesc.trim()||null,
+   action_date:actionDate,
+   status:actionStatus,
+   visible_to_client:true
+  }).select().single();
+  if(error){setFormError('No se pudo guardar: '+error.message);setSavingAction(false);return}
+  if(actionFile&&act){
+   const path=user.user.id+'/'+caseId+'/followups/'+act.id+'/'+actionFile.name;
+   const up=await supabase.storage.from('case-documents').upload(path,actionFile);
+   if(!up.error){
+    await supabase.from('action_documents').insert({
+     action_id:act.id,case_id:caseId,user_id:user.user.id,
+     file_name:actionFile.name,storage_path:path,
+     content_type:actionFile.type||null,visible_to_client:true
+    });
+   }
+  }
+  setSavingAction(false);
+  setActionType('');setActionTitle('');setActionDesc('');setActionDate(new Date().toISOString().split('T')[0]);setActionStatus('pending');setActionFile(null);
+  setShowForm(false);
+  onRefresh();
+ }
+
+ return <div className="followupSection">
+  <div className="dashHead">
+   <div><h3>Seguimiento de mi caso</h3><p>Historial cronológico de gestiones realizadas.</p></div>
+   <button className="primary" onClick={()=>setShowForm(!showForm)}><Plus size={18}/> Nueva gestión</button>
+  </div>
+  {formError&&<div className="notice error"><AlertCircle size={18}/><span>{formError}</span></div>}
+  {showForm&&<form className="caseForm extended" onSubmit={createAction}>
+   <div className="formGroup">
+    <label>Tipo de gestión <span className="req">*</span></label>
+    <select value={actionType} onChange={e=>setActionType(e.target.value)} disabled={savingAction}>
+     <option value="">Selecciona...</option>
+     {ACTION_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+    </select>
+   </div>
+   <div className="formGroup">
+    <label>Título <span className="req">*</span></label>
+    <input value={actionTitle} onChange={e=>setActionTitle(e.target.value)} disabled={savingAction} placeholder="Ej: Derecho de petición enviado"/>
+   </div>
+   <div className="formGroup">
+    <label>Descripción</label>
+    <textarea value={actionDesc} onChange={e=>setActionDesc(e.target.value)} rows="3" disabled={savingAction} placeholder="Describe la actuación..."/>
+   </div>
+   <div className="formGrid2">
+    <div className="formGroup"><label>Fecha</label><input type="date" value={actionDate} onChange={e=>setActionDate(e.target.value)} disabled={savingAction}/></div>
+    <div className="formGroup"><label>Estado</label><select value={actionStatus} onChange={e=>setActionStatus(e.target.value)} disabled={savingAction}>{ACTION_STATUSES.map(s=><option key={s.value} value={s.value}>{s.label}</option>)}</select></div>
+   </div>
+   <div className="formGroup">
+    <label className="upload"><Upload size={20}/><span>{actionFile?actionFile.name:'Adjuntar documento (opcional)'}</span><input type="file" onChange={e=>setActionFile(e.target.files?.[0]||null)} disabled={savingAction}/></label>
+   </div>
+   <div className="row">
+    <button type="submit" className="primary" disabled={savingAction}>{savingAction?<><Loader2 size={18} className="spin"/> Guardando...</>:'Guardar gestión'}</button>
+    <button type="button" className="ghost" onClick={()=>setShowForm(false)} disabled={savingAction}>Cancelar</button>
+   </div>
+  </form>}
+  <div className="timeline">
+   {actions.length?actions.map(a=>(
+    <div className="timelineItem" key={a.id} onMouseEnter={()=>loadActionDocs(a.id)}>
+     <div className="timelineDate">{a.action_date}</div>
+     <div className="timelineContent">
+      <div className="timelineHeader">
+       <b>{a.title}</b>
+       <span className={`statusBadge status-${a.status}`}>{statusLabel(a.status)}</span>
+      </div>
+      {a.description&&<p className="timelineDesc">{a.description}</p>}
+      <div className="timelineMeta">
+       <span>{a.action_type}</span>
+      </div>
+      {actionDocs[a.id]&&actionDocs[a.id].length>0&&(
+       <div className="timelineDocs">
+        {actionDocs[a.id].map(d=>(
+         <button key={d.id} className="ghost sm" onClick={()=>downloadActionDoc(d)}><Download size={14}/> {d.file_name}</button>
+        ))}
+       </div>
+      )}
+     </div>
+    </div>
+   )):<div className="empty"><Activity size={38}/><b>Sin gestiones registradas</b><span>Las gestiones aparecerán aquí cronológicamente.</span></div>}
+  </div>
+ </div>
 }
 function ProfileForm({session}){
  const [fullName,setFullName]=useState('');
@@ -425,86 +699,43 @@ function ProfileForm({session}){
 
  async function loadProfile(){
   setLoading(true);
-  const {data,error}=await supabase
-   .from('profiles')
-   .select('full_name,cedula,phone,address,email')
-   .eq('id',session.user.id)
-   .maybeSingle();
-  if(error){
-   setMsg('No se pudo cargar tu perfil: '+error.message);
-   setMsgType('error');
-  } else if(data){
-   setFullName(data.full_name||'');
-   setCedula(data.cedula||'');
-   setPhone(data.phone||'');
-   setAddress(data.address||'');
-   setEmail(data.email||session.user.email||'');
-  } else {
-   setFullName(session.user.user_metadata?.full_name||'');
-   setEmail(session.user.email||'');
-  }
+  const {data,error}=await supabase.from('profiles').select('full_name,cedula,phone,address,email').eq('id',session.user.id).maybeSingle();
+  if(error){setMsg('No se pudo cargar tu perfil: '+error.message);setMsgType('error')}
+  else if(data){setFullName(data.full_name||'');setCedula(data.cedula||'');setPhone(data.phone||'');setAddress(data.address||'');setEmail(data.email||session.user.email||'')}
+  else{setFullName(session.user.user_metadata?.full_name||'');setEmail(session.user.email||'')}
   setLoading(false);
  }
 
  function validate(){
   const e={};
-  if(!fullName.trim()) e.fullName='El nombre completo es obligatorio.';
-  if(!cedula.trim()) e.cedula='La cédula es obligatoria.';
-  else if(!/^\d{5,12}$/.test(cedula.trim())) e.cedula='La cédula debe tener entre 5 y 12 dígitos.';
-  if(!phone.trim()) e.phone='El celular es obligatorio.';
-  else if(!/^3\d{8,9}$/.test(phone.trim())) e.phone='El celular debe ser un número colombiano válido (ej: 3101234567).';
-  if(!address.trim()) e.address='La dirección es obligatoria.';
-  if(!email.trim()) e.email='El correo electrónico es obligatorio.';
-  else if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email='El correo electrónico no es válido.';
+  if(!fullName.trim())e.fullName='El nombre completo es obligatorio.';
+  if(!cedula.trim())e.cedula='La cédula es obligatoria.';
+  else if(!/^\d{5,12}$/.test(cedula.trim()))e.cedula='La cédula debe tener entre 5 y 12 dígitos.';
+  if(!phone.trim())e.phone='El celular es obligatorio.';
+  else if(!/^3\d{8,9}$/.test(phone.trim()))e.phone='El celular debe ser un número colombiano válido (ej: 3101234567).';
+  if(!address.trim())e.address='La dirección es obligatoria.';
+  if(!email.trim())e.email='El correo electrónico es obligatorio.';
+  else if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))e.email='El correo electrónico no es válido.';
   setErrors(e);
   return Object.keys(e).length===0;
  }
 
  async function saveProfile(e){
-  e.preventDefault();
-  setMsg('');
-  setMsgType('');
-  if(!validate()){
-   setMsg('Por favor corrige los campos marcados en rojo.');
-   setMsgType('error');
-   return;
-  }
+  e.preventDefault();setMsg('');setMsgType('');
+  if(!validate()){setMsg('Por favor corrige los campos marcados en rojo.');setMsgType('error');return}
   setSaving(true);
-  const {data:existing}=await supabase
-   .from('profiles')
-   .select('id')
-   .eq('id',session.user.id)
-   .maybeSingle();
+  const {data:existing}=await supabase.from('profiles').select('id').eq('id',session.user.id).maybeSingle();
   if(existing){
-   const {error}=await supabase
-    .from('profiles')
-    .update({full_name:fullName.trim(),cedula:cedula.trim(),phone:phone.trim(),address:address.trim(),email:email.trim()})
-    .eq('id',session.user.id);
-   if(error){
-    setMsg('No se pudo actualizar tu perfil: '+error.message);
-    setMsgType('error');
-   } else {
-    setMsg('Perfil actualizado correctamente.');
-    setMsgType('success');
-   }
-  } else {
-   const {error}=await supabase
-    .from('profiles')
-    .insert({id:session.user.id,full_name:fullName.trim(),cedula:cedula.trim(),phone:phone.trim(),address:address.trim(),email:email.trim()});
-   if(error){
-    setMsg('No se pudo crear tu perfil: '+error.message);
-    setMsgType('error');
-   } else {
-    setMsg('Perfil creado correctamente.');
-    setMsgType('success');
-   }
+   const {error}=await supabase.from('profiles').update({full_name:fullName.trim(),cedula:cedula.trim(),phone:phone.trim(),address:address.trim(),email:email.trim()}).eq('id',session.user.id);
+   if(error){setMsg('No se pudo actualizar tu perfil: '+error.message);setMsgType('error')}else{setMsg('Perfil actualizado correctamente.');setMsgType('success')}
+  }else{
+   const {error}=await supabase.from('profiles').insert({id:session.user.id,full_name:fullName.trim(),cedula:cedula.trim(),phone:phone.trim(),address:address.trim(),email:email.trim()});
+   if(error){setMsg('No se pudo crear tu perfil: '+error.message);setMsgType('error')}else{setMsg('Perfil creado correctamente.');setMsgType('success')}
   }
   setSaving(false);
  }
 
- if(loading){
-  return <div className="profileLoading"><Loader2 size={28} className="spin"/><span>Cargando tu perfil...</span></div>;
- }
+ if(loading) return <div className="profileLoading"><Loader2 size={28} className="spin"/><span>Cargando tu perfil...</span></div>;
 
  return <div className="profileSection">
   <div className="dashHead"><div><div className="badge"><User size={14}/> Datos personales</div><h2>Mi perfil</h2><p>Tu información personal se mantiene privada y separada por cuenta.</p></div></div>
@@ -514,36 +745,12 @@ function ProfileForm({session}){
    <span>{msg}</span>
   </div>}
   <form className="profileForm" onSubmit={saveProfile}>
-   <div className="formGroup">
-    <label>Nombre completo <span className="req">*</span></label>
-    <input value={fullName} onChange={e=>setFullName(e.target.value)} disabled={saving} className={errors.fullName?'inputError':''}/>
-    {errors.fullName&&<span className="fieldError">{errors.fullName}</span>}
-   </div>
-   <div className="formGroup">
-    <label>Cédula <span className="req">*</span></label>
-    <input value={cedula} onChange={e=>setCedula(e.target.value)} disabled={saving} placeholder="Ej: 12345678" className={errors.cedula?'inputError':''}/>
-    {errors.cedula&&<span className="fieldError">{errors.cedula}</span>}
-   </div>
-   <div className="formGroup">
-    <label>Celular <span className="req">*</span></label>
-    <input value={phone} onChange={e=>setPhone(e.target.value)} disabled={saving} placeholder="Ej: 3101234567" className={errors.phone?'inputError':''}/>
-    {errors.phone&&<span className="fieldError">{errors.phone}</span>}
-   </div>
-   <div className="formGroup">
-    <label>Dirección <span className="req">*</span></label>
-    <input value={address} onChange={e=>setAddress(e.target.value)} disabled={saving} placeholder="Ej: Calle 123 #45-67" className={errors.address?'inputError':''}/>
-    {errors.address&&<span className="fieldError">{errors.address}</span>}
-   </div>
-   <div className="formGroup">
-    <label>Correo electrónico <span className="req">*</span></label>
-    <input type="email" value={email} onChange={e=>setEmail(e.target.value)} disabled={saving} className={errors.email?'inputError':''}/>
-    {errors.email&&<span className="fieldError">{errors.email}</span>}
-   </div>
-   <div className="row">
-    <button type="submit" className="primary" disabled={saving}>
-     {saving?<><Loader2 size={18} className="spin"/> Guardando...</>:'Guardar perfil'}
-    </button>
-   </div>
+   <div className="formGroup"><label>Nombre completo <span className="req">*</span></label><input value={fullName} onChange={e=>setFullName(e.target.value)} disabled={saving} className={errors.fullName?'inputError':''}/>{errors.fullName&&<span className="fieldError">{errors.fullName}</span>}</div>
+   <div className="formGroup"><label>Cédula <span className="req">*</span></label><input value={cedula} onChange={e=>setCedula(e.target.value)} disabled={saving} placeholder="Ej: 12345678" className={errors.cedula?'inputError':''}/>{errors.cedula&&<span className="fieldError">{errors.cedula}</span>}</div>
+   <div className="formGroup"><label>Celular <span className="req">*</span></label><input value={phone} onChange={e=>setPhone(e.target.value)} disabled={saving} placeholder="Ej: 3101234567" className={errors.phone?'inputError':''}/>{errors.phone&&<span className="fieldError">{errors.phone}</span>}</div>
+   <div className="formGroup"><label>Dirección <span className="req">*</span></label><input value={address} onChange={e=>setAddress(e.target.value)} disabled={saving} placeholder="Ej: Calle 123 #45-67" className={errors.address?'inputError':''}/>{errors.address&&<span className="fieldError">{errors.address}</span>}</div>
+   <div className="formGroup"><label>Correo electrónico <span className="req">*</span></label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} disabled={saving} className={errors.email?'inputError':''}/>{errors.email&&<span className="fieldError">{errors.email}</span>}</div>
+   <div className="row"><button type="submit" className="primary" disabled={saving}>{saving?<><Loader2 size={18} className="spin"/> Guardando...</>:'Guardar perfil'}</button></div>
   </form>
  </div>
 }
