@@ -53,7 +53,7 @@ const WHATSAPP_MSG='Hola, necesito ayuda con mi caso en LEXACASO.';
 const POLICY_VERSION='1.0.0';
 const MAX_DOCS=100;
 const MAX_FILE_SIZE=25*1024*1024;
-const ALLOWED_EXTENSIONS=['pdf','jpg','jpeg','png','webp','doc','docx'];
+const ALLOWED_EXTENSIONS=['pdf','jpg','jpeg','png','webp','doc','docx','xls','xlsx','zip','rar'];
 const REVIEW_STATUS_LABELS={pending:'Pendiente',in_review:'En revisión',reviewed:'Revisado'};
 const REVIEW_STATUS_COLORS={pending:'#92400e',in_review:'#1e40af',reviewed:'#065f46'};
 const REVIEW_STATUS_BACKGROUNDS={pending:'#fef3c7',in_review:'#dbeafe',reviewed:'#d1fae5'};
@@ -242,9 +242,17 @@ function CollapsibleSection({title,icon:Icon,defaultOpen,children,required}){
 }
 function CaseForm({session,profileData,onClose,onSaved}){
  const [saving,setSaving]=useState(false);
+ const [fullName,setFullName]=useState(profileData?.full_name||session.user.user_metadata?.full_name||'');
+ const [cedula,setCedula]=useState(profileData?.cedula||session.user.user_metadata?.cedula||'');
+ const [phone,setPhone]=useState(profileData?.phone||session.user.user_metadata?.phone||'');
+ const email=profileData?.email||session.user.email||'';
  const [title,setTitle]=useState('');
  const [facts,setFacts]=useState('');
  const [file,setFile]=useState(null);
+ const [filePath,setFilePath]=useState('');
+ const [fileStatus,setFileStatus]=useState('idle');
+ const [fileProgress,setFileProgress]=useState(0);
+ const [fileError,setFileError]=useState('');
  const [actingAs,setActingAs]=useState('own');
  const [repRelationship,setRepRelationship]=useState('');
  const [repName,setRepName]=useState('');
@@ -274,6 +282,17 @@ function CaseForm({session,profileData,onClose,onSaved}){
  },[session.user.id]);
 
  useEffect(()=>{
+  if(!profileData)return;
+  setFullName(profileData.full_name||'');setCedula(profileData.cedula||'');setPhone(profileData.phone||'');
+ },[profileData]);
+
+ useEffect(()=>{
+  if(!fullName.trim()&&!cedula.trim()&&!phone.trim())return;
+  const timer=setTimeout(()=>{supabase.from('profiles').update({full_name:fullName.trim(),cedula:cedula.trim(),phone:phone.trim()}).eq('id',session.user.id).then(({error})=>{if(error)console.error('profile sync failed',error)})},600);
+  return()=>clearTimeout(timer);
+ },[fullName,cedula,phone,session.user.id]);
+
+ useEffect(()=>{
   if(hasDeadline==='yes'&&termDuration&&termDuration!=='Otro'&&termStartDate){
    const days=parseInt(termDuration);
    if(!isNaN(days)){
@@ -293,6 +312,8 @@ function CaseForm({session,profileData,onClose,onSaved}){
   e.preventDefault();
   setFormError('');
   if(!consentAccepted){setFormError('Debes aceptar el Aviso de Privacidad y la Política de Tratamiento de Datos Personales para crear un caso.');return}
+  if(!fullName.trim()||!cedula.trim()||!phone.trim()){setFormError('Completa Nombre, Cédula y Teléfono para continuar.');return}
+  if(file&&fileStatus!=='success'){setFormError('Espera a que el archivo termine de subir correctamente.');return}
   if(!title.trim()){setFormError('El título del caso es obligatorio.');return}
   if(!legalCategory){setFormError('Debes seleccionar una categoría jurídica.');return}
   const catEntry=LEGAL_CATALOG.find(c=>c.name===legalCategory);
@@ -309,6 +330,8 @@ function CaseForm({session,profileData,onClose,onSaved}){
     const {error:consentError}=await supabase.from('data_consents').insert({user_id:user.user.id,policy_version:POLICY_VERSION,user_agent:navigator.userAgent});
     if(consentError){setFormError('No se pudo registrar la autorización de datos. Intenta nuevamente.');setSaving(false);return}
    }
+   const profileUpdate=await supabase.from('profiles').update({full_name:fullName.trim(),cedula:cedula.trim(),phone:phone.trim()}).eq('id',user.user.id);
+   if(profileUpdate.error){setFormError('No se pudo guardar la información del solicitante. Intenta nuevamente.');setSaving(false);return}
    const caseData={
     user_id:user.user.id,
     title:title.trim(),
@@ -336,17 +359,11 @@ function CaseForm({session,profileData,onClose,onSaved}){
    };
    const {data:c,error}=await supabase.from('cases').insert(caseData).select().single();
    if(error){setFormError('No se pudo guardar el caso: '+error.message);setSaving(false);return}
-   if(file){
-    const path=user.user.id+'/'+c.id+'/'+file.name;
-    const up=await supabase.storage.from('case-documents').upload(path,file);
-    if(up.error){
-     setFormError('El caso se guardó pero no se pudo subir el documento: '+up.error.message);
-     onSaved(c.id,'El caso se guardó pero el documento falló. Número: '+c.id,'error');
-     setSaving(false);return;
-    }
-    const ins=await supabase.from('case_documents').insert({case_id:c.id,user_id:user.user.id,file_name:file.name,storage_path:path,content_type:file.type||null});
+   if(file&&filePath){
+    const ins=await supabase.from('case_documents').insert({case_id:c.id,user_id:user.user.id,file_name:file.name,storage_path:filePath,content_type:file.type||null,review_status:'pending'});
     if(ins.error){
-     setFormError('El caso se guardó y el documento se subió, pero no se registró en la base de datos: '+ins.error.message);
+     await supabase.storage.from('case-documents').remove([filePath]);
+     setFormError('El caso se guardó, pero no se pudo registrar el documento. Intenta nuevamente.');
      onSaved(c.id,'Caso guardado con problema en el documento. Número: '+c.id,'error');
      setSaving(false);return;
     }
@@ -360,8 +377,24 @@ function CaseForm({session,profileData,onClose,onSaved}){
   }
  }
 
+ async function handleFileChange(e){
+  const selected=e.target.files?.[0];e.target.value='';if(!selected)return;
+  const ext=selected.name.split('.').pop()?.toLowerCase();
+  if(!ext||!ALLOWED_EXTENSIONS.includes(ext)){setFileError('Formato no permitido. Usa PDF, Word, Excel, ZIP, RAR o imágenes.');setFileStatus('error');return}
+  if(selected.size>MAX_FILE_SIZE){setFileError('El archivo supera el límite de 25 MB.');setFileStatus('error');return}
+  setFile(selected);setFilePath('');setFileError('');setFileStatus('uploading');setFileProgress(20);
+  try{
+   const safeName=selected.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+   const path=session.user.id+'/pending/'+crypto.randomUUID()+'_'+safeName;
+   setFileProgress(45);
+   const {error}=await supabase.storage.from('case-documents').upload(path,selected,{cacheControl:'3600',upsert:false});
+   if(error){setFileStatus('error');setFileError('No se pudo subir el archivo. Intenta nuevamente.');return}
+   setFilePath(path);setFileProgress(100);setFileStatus('success');
+  }catch(error){console.error('case file upload failed',error);setFileStatus('error');setFileError('No se pudo subir el archivo. Intenta nuevamente.')}
+ }
+
  function resetForm(){
-  setTitle('');setFacts('');setFile(null);
+  setTitle('');setFacts('');setFile(null);setFilePath('');setFileStatus('idle');setFileProgress(0);setFileError('');
   setActingAs('own');setRepRelationship('');setRepName('');setRepCedula('');setRepPhone('');setRepAddress('');
   setLegalCategory('');setLegalSubcategory('');
   setDepartment('');setMunicipality('');setAuthorityType('');setAuthorityName('');
@@ -369,17 +402,15 @@ function CaseForm({session,profileData,onClose,onSaved}){
   setHasDeadline('unknown');setTermDuration('');setTermCustomDuration('');setTermStartDate('');setTermEndDate('');
  }
 
+ const formReady=Boolean(consentAccepted&&fullName.trim()&&cedula.trim()&&phone.trim()&&title.trim()&&legalCategory&&(!LEGAL_CATALOG.find(c=>c.name===legalCategory)?.sub.length||legalSubcategory)&&(!file||fileStatus==='success'));
+
  return <form className="caseForm extended" onSubmit={createCase}>
   {formError&&<div className="notice error"><AlertCircle size={18}/><span>{formError}</span></div>}
 
   <CollapsibleSection title="Datos del solicitante" icon={User} defaultOpen={true}>
-   <div className="sectionHint">
-    {profileData?(
-     <>Nombre: <strong>{profileData.full_name||'—'}</strong> · Cédula: <strong>{profileData.cedula||'—'}</strong> · Celular: <strong>{profileData.phone||'—'}</strong></>
-    ):(
-     <>Completa tu perfil en la pestaña "Mi perfil" para que estos datos se carguen automáticamente.</>
-    )}
-   </div>
+   <div className="formGrid2"><div className="formGroup"><label>Nombre completo <span className="req">*</span></label><input value={fullName} onChange={e=>setFullName(e.target.value)} disabled={saving}/></div><div className="formGroup"><label>Cédula <span className="req">*</span></label><input value={cedula} onChange={e=>setCedula(e.target.value)} disabled={saving}/></div></div>
+   <div className="formGrid2"><div className="formGroup"><label>Teléfono <span className="req">*</span></label><input value={phone} onChange={e=>setPhone(e.target.value)} disabled={saving}/></div><div className="formGroup"><label>Correo electrónico</label><input type="email" value={email} disabled/></div></div>
+   <div className="sectionHint">Los cambios se guardan automáticamente en tu perfil.</div>
   </CollapsibleSection>
 
   <CollapsibleSection title="Representación" icon={Users} defaultOpen={true}>
@@ -485,11 +516,14 @@ function CaseForm({session,profileData,onClose,onSaved}){
   </CollapsibleSection>
 
   <div className="formGroup">
-   <label className="upload"><Upload size={20}/><span>{file?file.name:'Adjuntar documento (opcional)'}</span><input type="file" onChange={e=>setFile(e.target.files?.[0]||null)} disabled={saving}/></label>
+   <label className="upload"><Upload size={20}/><span>{fileStatus==='uploading'?'Subiendo archivo...':file?file.name:'Adjuntar documento (opcional)'}</span><input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.jpg,.jpeg,.png,.webp" onChange={handleFileChange} disabled={saving||fileStatus==='uploading'}/></label>
+   {fileStatus==='uploading'&&<div className="uploadProgress"><div style={{width:`${fileProgress}%`}}/></div>}
+   {fileStatus==='success'&&<div className="uploadSuccess"><CheckCircle2 size={16}/> Archivo subido correctamente</div>}
+   {fileStatus==='error'&&<div className="fieldError">{fileError}</div>}
   </div>
   <label className="consentCheck"><input type="checkbox" checked={consentAccepted} onChange={e=>setConsentAccepted(e.target.checked)} disabled={saving}/><span>{CONSENT_TEXT} <strong>Versión {POLICY_VERSION}</strong></span></label>
   <div className="row">
-   <button type="submit" className="primary" disabled={saving}>{saving?<><Loader2 size={18} className="spin"/> Guardando...</>:'Guardar caso'}</button>
+   <button type="submit" className="primary" disabled={saving||!formReady}>{saving?<><Loader2 size={18} className="spin"/> Guardando...</>:'Guardar caso'}</button>
    <button type="button" className="ghost" onClick={onClose} disabled={saving}>Cancelar</button>
   </div>
  </form>
@@ -550,7 +584,7 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
   setMsg('');setMsgType('');
   if(documents.length>=MAX_DOCS){setMsg(`Has alcanzado el límite de ${MAX_DOCS} documentos por caso.`);setMsgType('error');return}
   const ext=f.name.split('.').pop()?.toLowerCase();
-  if(!ALLOWED_EXTENSIONS.includes(ext)){setMsg('Tipo de archivo no permitido. Formatos: PDF, JPG, PNG, WEBP, DOC, DOCX.');setMsgType('error');return}
+  if(!ALLOWED_EXTENSIONS.includes(ext)){setMsg('Tipo de archivo no permitido. Usa PDF, Word, Excel, ZIP, RAR o imágenes.');setMsgType('error');return}
   if(f.size>MAX_FILE_SIZE){setMsg(`El archivo excede 25 MB. (Tu archivo: ${(f.size/1024/1024).toFixed(1)} MB)`);setMsgType('error');return}
   setUploadingFile(true);
   try{
@@ -573,7 +607,7 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
  }
  async function replaceDoc(doc){
   const input=document.createElement('input');
-  input.type='file';input.accept='.pdf,.jpg,.jpeg,.png,.webp,.doc,.docx';
+  input.type='file';input.accept='.pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.zip,.rar';
   input.onchange=async()=>{
    const f=input.files?.[0];if(!f)return;
    const ext=f.name.split('.').pop()?.toLowerCase();
@@ -721,7 +755,7 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
      </div>;
     })}
    </div>
-   {documents.length===0&&<div className="empty" style={{marginTop:'16px'}}><FileText size={38}/><b>Sin documentos</b><span>{isAdmin?'Sube documentos para este caso.':'Sube documentos relacionados con tu caso. Formatos: PDF, JPG, PNG, WEBP, DOC, DOCX (máx. 25 MB).'}</span></div>}
+   {documents.length===0&&<div className="empty" style={{marginTop:'16px'}}><FileText size={38}/><b>Sin documentos</b><span>{isAdmin?'Sube documentos para este caso.':'Sube documentos relacionados con tu caso. Formatos: PDF, Word, Excel, ZIP, RAR e imágenes (máx. 25 MB).'}</span></div>}
   </div>}
 
   {detailTab==='info'&&!isAdmin&&<AuthorizationPanel caseId={caseId}/>}
