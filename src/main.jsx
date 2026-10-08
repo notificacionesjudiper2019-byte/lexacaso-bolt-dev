@@ -1,7 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {createClient} from '@supabase/supabase-js';
-import {Scale,ShieldCheck,Upload,FolderOpen,ArrowRight,LogIn,LogOut,CirclePlus as PlusCircle,Clock3,FileText,Loader2,AlertCircle,CheckCircle2,User,ChevronDown,ChevronRight,MapPin,Gavel,FileStack,Users,ArrowLeft,Download,Trash2,Calendar,MessageCircle,Plus,Activity,Settings,Search,LockKeyhole,UserCog,CheckSquare} from 'lucide-react';
+import { Scale, ShieldCheck, Upload, FolderOpen, ArrowRight, LogIn, LogOut, CirclePlus as PlusCircle, Clock3, FileText, Loader as Loader2, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, User, ChevronDown, ChevronRight, MapPin, Gavel, FileStack, Users, ArrowLeft, Download, Trash2, Calendar, MessageCircle, Plus, Activity, Settings, Search, LockKeyhole, UserCog, SquareCheck as CheckSquare, Bell, CreditCard as Edit3, EyeOff, Eye } from 'lucide-react';
 import './styles.css';
 
 const supabaseUrl=import.meta.env.VITE_SUPABASE_URL;
@@ -104,7 +104,10 @@ function Dashboard({session,cases,refresh}){
  const [profileData,setProfileData]=useState(null);
  const [selectedCaseId,setSelectedCaseId]=useState(null);
  const [isAdmin,setIsAdmin]=useState(false);
+ const [unreadCount,setUnreadCount]=useState(0);
  useEffect(()=>{supabase.rpc('is_admin').then(({data})=>setIsAdmin(data===true))},[session.user.id]);
+ useEffect(()=>{loadUnread()},[session.user.id]);
+ async function loadUnread(){const {data}=await supabase.from('notifications').select('id',{count:'exact'}).eq('user_id',session.user.id).eq('is_read',false);setUnreadCount(data?data.length:0)}
 
  async function loadProfile(){
   const {data}=await supabase
@@ -123,13 +126,14 @@ function Dashboard({session,cases,refresh}){
  }
 
  if(selectedCaseId){
-  return <CaseDetail session={session} caseId={selectedCaseId} isAdmin={isAdmin} onBack={()=>{setSelectedCaseId(null);refresh()}}/>
+  return <CaseDetail session={session} caseId={selectedCaseId} isAdmin={isAdmin} onBack={()=>{setSelectedCaseId(null);refresh();loadUnread()}}/>
  }
 
  return <section className="dashboard">
   <div className="tabs">
    <button className={tab==='cases'?'tab active':'tab'} onClick={()=>{setTab('cases');setMsg('');setMsgType('');setCaseNumber('')}}><FolderOpen size={17}/> Mis casos</button>
    <button className={tab==='profile'?'tab active':'tab'} onClick={()=>{setTab('profile');setMsg('');setMsgType('');setCaseNumber('')}}><User size={17}/> Mi perfil</button>
+   <button className={tab==='notifications'?'tab active':'tab'} onClick={()=>{setTab('notifications');setMsg('');setMsgType('');setCaseNumber('')}}><Bell size={17}/> Notificaciones{unreadCount>0&&<span className="tabBadge">{unreadCount}</span>}</button>
    {isAdmin&&<button className={tab==='admin'?'tab active':'tab'} onClick={()=>{setTab('admin');setMsg('');setMsgType('');setCaseNumber('')}}><Settings size={17}/> Administración</button>}
   </div>
   {tab==='cases'&&<>
@@ -161,6 +165,7 @@ function Dashboard({session,cases,refresh}){
    </div>
   </>}
   {tab==='profile'&&<ProfileForm session={session}/>}
+  {tab==='notifications'&&<NotificationsPanel session={session} onOpenCase={(id)=>{setSelectedCaseId(id)}} onRead={loadUnread}/>}
   {tab==='admin'&&isAdmin&&<AdminPanel session={session} onOpenCase={setSelectedCaseId}/>}
  </section>
 }
@@ -280,7 +285,7 @@ function CaseForm({session,profileData,onClose,onSaved}){
      onSaved(c.id,'El caso se guardó pero el documento falló. Número: '+c.id,'error');
      setSaving(false);return;
     }
-    const ins=await supabase.from('case_documents').insert({case_id:c.id,user_id:user.user.id,file_name:file.name,storage_path:path,content_type:file.type||null,visible_to_client:true});
+    const ins=await supabase.from('case_documents').insert({case_id:c.id,user_id:user.user.id,file_name:file.name,storage_path:path,content_type:file.type||null});
     if(ins.error){
      setFormError('El caso se guardó y el documento se subió, pero no se registró en la base de datos: '+ins.error.message);
      onSaved(c.id,'Caso guardado con problema en el documento. Número: '+c.id,'error');
@@ -477,10 +482,11 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
   if(!f) return;
   setUploadingFile(true);
   setMsg('');setMsgType('');
-  const path=session.user.id+'/'+caseId+'/'+f.name;
+  const ownerId=caseData.user_id||session.user.id;
+  const path=ownerId+'/'+caseId+'/'+f.name;
   const up=await supabase.storage.from('case-documents').upload(path,f);
   if(up.error){setMsg('No se pudo subir: '+up.error.message);setMsgType('error');setUploadingFile(false);return}
-  const ins=await supabase.from('case_documents').insert({case_id:caseId,user_id:session.user.id,file_name:f.name,storage_path:path,content_type:f.type||null,visible_to_client:true});
+  const ins=await supabase.from('case_documents').insert({case_id:caseId,user_id:session.user.id,file_name:f.name,storage_path:path,content_type:f.type||null});
   if(ins.error){setMsg('No se pudo registrar: '+ins.error.message);setMsgType('error');setUploadingFile(false);return}
   setMsg('Documento subido correctamente.');setMsgType('success');
   setUploadingFile(false);
@@ -574,13 +580,14 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
    <div className="docList">
     {documents.length?documents.map(d=><div className="docItem" key={d.id}>
      <FileText size={20}/>
-     <div className="docInfo"><b>{d.file_name}</b><span>{d.visible_to_client?'Visible':'Interno'}</span></div>
+     <div className="docInfo"><b>{d.file_name}</b><span>{d.visible_to_client?'Visible':'Interno'}{isAdmin&&d.is_sensitive?' · Sensible':''}</span></div>
      <div className="docActions">
       <button className="ghost sm" onClick={()=>downloadDoc(d)}><Download size={16}/> Descargar</button>
-      {isAdmin&&<button className="ghost sm" onClick={async()=>{const {error}=await supabase.rpc('set_case_document_visibility',{p_document_id:d.id,p_visible_to_client:!d.visible_to_client,p_is_sensitive:d.is_sensitive});if(error){setMsg('No se pudo cambiar la visibilidad.');setMsgType('error')}else{setMsg('Visibilidad actualizada.');setMsgType('success');loadAll()}}}>{d.visible_to_client?'Marcar interno':'Hacer visible'}</button>}
-      {!isAdmin&&<button className="ghost sm danger" onClick={()=>deleteDoc(d)}><Trash2 size={16}/></button>}
+      {isAdmin&&<button className="ghost sm" onClick={async()=>{const {error}=await supabase.rpc('set_case_document_visibility',{p_document_id:d.id,p_visible_to_client:!d.visible_to_client,p_is_sensitive:d.is_sensitive});if(error){setMsg('No se pudo cambiar la visibilidad.');setMsgType('error')}else{setMsg('Visibilidad actualizada.');setMsgType('success');loadAll()}}}>{d.visible_to_client?<><EyeOff size={14}/> Marcar interno</>:<><Eye size={14}/> Hacer visible</>}</button>}
+      {isAdmin&&<button className="ghost sm" onClick={async()=>{const {error}=await supabase.rpc('set_case_document_visibility',{p_document_id:d.id,p_visible_to_client:d.visible_to_client,p_is_sensitive:!d.is_sensitive});if(error){setMsg('No se pudo cambiar.');setMsgType('error')}else{setMsg('Sensibilidad actualizada.');setMsgType('success');loadAll()}}}>{d.is_sensitive?'No sensible':'Sensible'}</button>}
+      <button className="ghost sm danger" onClick={()=>deleteDoc(d)}><Trash2 size={16}/></button>
      </div>
-    </div>):<div className="empty"><FileText size={38}/><b>Sin documentos</b><span>Sube documentos relacionados con tu caso.</span></div>}
+    </div>):<div className="empty"><FileText size={38}/><b>Sin documentos</b><span>{isAdmin?'Sube documentos para este caso.':'Sube documentos relacionados con tu caso.'}</span></div>}
    </div>
   </div>}
 
@@ -594,6 +601,7 @@ function CaseDetail({session,caseId,isAdmin=false,onBack}){
 }
 function FollowupTab({session,caseId,isAdmin,actions,onRefresh,statusLabel,downloadActionDoc}){
  const [showForm,setShowForm]=useState(false);
+ const [editingId,setEditingId]=useState(null);
  const [actionType,setActionType]=useState('');
  const [actionTitle,setActionTitle]=useState('');
  const [actionDesc,setActionDesc]=useState('');
@@ -611,14 +619,26 @@ function FollowupTab({session,caseId,isAdmin,actions,onRefresh,statusLabel,downl
   setActionDocs(prev=>({...prev,[actionId]:data||[]}));
  }
 
- async function createAction(e){
+ function resetForm(){
+  setActionType('');setActionTitle('');setActionDesc('');setActionDate(new Date().toISOString().split('T')[0]);setActionStatus('pending');setActionFile(null);setActionVisible(true);
+  setEditingId(null);setShowForm(false);
+ }
+
+ function startEdit(a){
+  setEditingId(a.id);setShowForm(true);
+  setActionType(a.action_type);setActionTitle(a.title);setActionDesc(a.description||'');
+  setActionDate(a.action_date);setActionStatus(a.status);setActionVisible(a.visible_to_client);
+  setActionFile(null);
+ }
+
+ async function saveAction(e){
   e.preventDefault();
   setFormError('');
   if(!actionType){setFormError('Selecciona un tipo de gestión.');return}
   if(!actionTitle.trim()){setFormError('El título de la gestión es obligatorio.');return}
   setSavingAction(true);
   const {data:user}=await supabase.auth.getUser();
-  const {data:act,error}=await supabase.from('case_actions').insert({
+  const payload={
    case_id:caseId,
    created_by:user.user.id,
    action_type:actionType,
@@ -626,8 +646,16 @@ function FollowupTab({session,caseId,isAdmin,actions,onRefresh,statusLabel,downl
    description:actionDesc.trim()||null,
    action_date:actionDate,
    status:actionStatus,
-   visible_to_client:actionVisible
-  }).select().single();
+   visible_to_client:isAdmin?actionVisible:true
+  };
+  let act=null,error=null;
+  if(editingId){
+   const r=await supabase.from('case_actions').update(payload).eq('id',editingId).select().single();
+   act=r.data;error=r.error;
+  }else{
+   const r=await supabase.from('case_actions').insert(payload).select().single();
+   act=r.data;error=r.error;
+  }
   if(error){setFormError('No se pudo guardar: '+error.message);setSavingAction(false);return}
   if(actionFile&&act){
    const path=user.user.id+'/'+caseId+'/followups/'+act.id+'/'+actionFile.name;
@@ -636,23 +664,40 @@ function FollowupTab({session,caseId,isAdmin,actions,onRefresh,statusLabel,downl
     await supabase.from('action_documents').insert({
      action_id:act.id,case_id:caseId,user_id:user.user.id,
      file_name:actionFile.name,storage_path:path,
-     content_type:actionFile.type||null,visible_to_client:actionVisible
+     content_type:actionFile.type||null,visible_to_client:isAdmin?actionVisible:true
     });
    }
   }
   setSavingAction(false);
-  setActionType('');setActionTitle('');setActionDesc('');setActionDate(new Date().toISOString().split('T')[0]);setActionStatus('pending');setActionFile(null);setActionVisible(true);
-  setShowForm(false);
+  resetForm();
   onRefresh();
+ }
+
+ async function deleteAction(a){
+  if(!confirm('¿Eliminar esta gestión y sus documentos?'))return;
+  const docs=actionDocs[a.id]||[];
+  for(const d of docs){
+   if(d.storage_path){await supabase.storage.from('case-documents').remove([d.storage_path])}
+  }
+  const {error}=await supabase.from('case_actions').delete().eq('id',a.id);
+  if(error){setFormError('No se pudo eliminar: '+error.message);return}
+  setActionDocs(prev=>{const n={...prev};delete n[a.id];return n});
+  onRefresh();
+ }
+
+ async function toggleActionDocVisibility(doc){
+  const {error}=await supabase.from('action_documents').update({visible_to_client:!doc.visible_to_client}).eq('id',doc.id);
+  if(error)return;
+  setActionDocs(prev=>({...prev,[doc.action_id]:(prev[doc.action_id]||[]).map(d=>d.id===doc.id?{...d,visible_to_client:!doc.visible_to_client}:d)}));
  }
 
  return <div className="followupSection">
   <div className="dashHead">
-   <div><h3>Seguimiento de mi caso</h3><p>Historial cronológico de gestiones realizadas.</p></div>
-   {isAdmin&&<button className="primary" onClick={()=>setShowForm(!showForm)}><Plus size={18}/> Nueva gestión</button>}
+   <div><h3>{isAdmin?'Gestiones del caso':'Seguimiento de mi caso'}</h3><p>{isAdmin?'Administra las gestiones realizadas.':'Historial cronológico de gestiones realizadas.'}</p></div>
+   {isAdmin&&<button className="primary" onClick={()=>{resetForm();setShowForm(!showForm)}}><Plus size={18}/> Nueva gestión</button>}
   </div>
   {formError&&<div className="notice error"><AlertCircle size={18}/><span>{formError}</span></div>}
-  {showForm&&<form className="caseForm extended" onSubmit={createAction}>
+  {showForm&&<form className="caseForm extended" onSubmit={saveAction}>
    <div className="formGroup">
     <label>Tipo de gestión <span className="req">*</span></label>
     <select value={actionType} onChange={e=>setActionType(e.target.value)} disabled={savingAction}>
@@ -677,8 +722,8 @@ function FollowupTab({session,caseId,isAdmin,actions,onRefresh,statusLabel,downl
    </div>
    {isAdmin&&<div className="formGroup"><label className="checkRow"><input type="checkbox" checked={actionVisible} onChange={e=>setActionVisible(e.target.checked)} disabled={savingAction}/><span>Visible para el cliente</span></label></div>}
    <div className="row">
-    <button type="submit" className="primary" disabled={savingAction}>{savingAction?<><Loader2 size={18} className="spin"/> Guardando...</>:'Guardar gestión'}</button>
-    <button type="button" className="ghost" onClick={()=>setShowForm(false)} disabled={savingAction}>Cancelar</button>
+    <button type="submit" className="primary" disabled={savingAction}>{savingAction?<><Loader2 size={18} className="spin"/> Guardando...</>:editingId?'Actualizar gestión':'Guardar gestión'}</button>
+    <button type="button" className="ghost" onClick={resetForm} disabled={savingAction}>Cancelar</button>
    </div>
   </form>}
   <div className="timeline">
@@ -693,17 +738,25 @@ function FollowupTab({session,caseId,isAdmin,actions,onRefresh,statusLabel,downl
       {a.description&&<p className="timelineDesc">{a.description}</p>}
       <div className="timelineMeta">
        <span>{a.action_type}</span>
+       {isAdmin&&<span className="timelineAdminBadge">{a.visible_to_client?'Visible':'Interno'}</span>}
       </div>
       {actionDocs[a.id]&&actionDocs[a.id].length>0&&(
        <div className="timelineDocs">
         {actionDocs[a.id].map(d=>(
-         <button key={d.id} className="ghost sm" onClick={()=>downloadActionDoc(d)}><Download size={14}/> {d.file_name}</button>
+         <div className="timelineDocItem" key={d.id}>
+          <button className="ghost sm" onClick={()=>downloadActionDoc(d)}><Download size={14}/> {d.file_name}</button>
+          {isAdmin&&<button className="ghost sm" onClick={()=>toggleActionDocVisibility(d)} title={d.visible_to_client?'Ocultar al cliente':'Hacer visible'}>{d.visible_to_client?<Eye size={14}/>:<EyeOff size={14}/>}</button>}
+         </div>
         ))}
        </div>
       )}
+      {isAdmin&&<div className="timelineActions">
+       <button className="ghost sm" onClick={()=>startEdit(a)}><Edit3 size={14}/> Editar</button>
+       <button className="ghost sm danger" onClick={()=>deleteAction(a)}><Trash2 size={14}/> Eliminar</button>
+      </div>}
      </div>
     </div>
-   )):<div className="empty"><Activity size={38}/><b>Sin gestiones registradas</b><span>Las gestiones aparecerán aquí cronológicamente.</span></div>}
+   )):<div className="empty"><Activity size={38}/><b>Sin gestiones registradas</b><span>{isAdmin?'Crea la primera gestión para este caso.':'Las gestiones aparecerán aquí cronológicamente.'}</span></div>}
   </div>
  </div>
 }
@@ -741,6 +794,30 @@ function AuthorizationPanel({caseId}){
    <div className="authorizationList">{authorizations.filter(a=>!a.revoked_at).map(a=>{const admin=admins.find(x=>x.id===a.user_id);return <div className="authorizationItem" key={a.id}><span>{admin?.full_name||admin?.email||'Administrador autorizado'}</span><button className="ghost sm danger" onClick={()=>revoke(a.id)}>Revocar</button></div>})}</div>
   </>}
   {message&&<div className="notice success">{message}</div>}
+ </div>
+}
+function NotificationsPanel({session,onOpenCase,onRead}){
+ const [notifications,setNotifications]=useState([]);
+ const [loading,setLoading]=useState(true);
+ async function load(){
+  setLoading(true);
+  const {data}=await supabase.from('notifications').select('*').eq('user_id',session.user.id).order('created_at',{ascending:false}).limit(50);
+  setNotifications(data||[]);
+  setLoading(false);
+ }
+ useEffect(()=>{load()},[]);
+ async function markAsRead(n){
+  const {error}=await supabase.from('notifications').update({is_read:true}).eq('id',n.id);
+  if(!error){load();onRead()}
+ }
+ async function markAllRead(){
+  const {error}=await supabase.from('notifications').update({is_read:true}).eq('user_id',session.user.id).eq('is_read',false);
+  if(!error){load();onRead()}
+ }
+ const notifIcons={new_action:<Activity size={18}/>,document_visible:<FileText size={18}/>,case_update:<Bell size={18}/>};
+ return <div className="profileSection">
+  <div className="dashHead"><div><div className="badge"><Bell size={14}/> Actualizaciones</div><h2>Notificaciones</h2><p>Te avisamos cuando haya novedades en tus casos.</p></div>{notifications.some(n=>!n.is_read)&&<button className="ghost" onClick={markAllRead}><CheckSquare size={16}/> Marcar todo como leído</button>}</div>
+  {loading?<div className="profileLoading"><Loader2 size={28} className="spin"/><span>Cargando notificaciones...</span></div>:notifications.length?<div className="notifList">{notifications.map(n=><div className={n.is_read?'notifItem read':'notifItem'} key={n.id}>{notifIcons[n.type]||<Bell size={18}/>}<div className="notifContent"><b>{n.title}</b><span>{n.message}</span><small>{new Date(n.created_at).toLocaleString('es-CO')}</small></div>{!n.is_read&&<button className="ghost sm" onClick={()=>markAsRead(n)}>Marcar leída</button>}<button className="ghost sm" onClick={()=>onOpenCase(n.case_id)}>Ver caso</button></div>)}</div>:<div className="empty"><Bell size={38}/><b>Sin notificaciones</b><span>Las actualizaciones de tus casos aparecerán aquí.</span></div>}
  </div>
 }
 function AdminPanel({session,onOpenCase}){
