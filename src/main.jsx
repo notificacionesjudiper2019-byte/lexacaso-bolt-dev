@@ -8,10 +8,27 @@ const supabaseUrl=import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey=import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase=createClient(supabaseUrl,supabaseKey);
 
-const LEGAL_CATEGORIES=[
- 'Acción de tutela','Acción popular','Acción de cumplimiento','Proceso ordinario','Proceso abreviado',
- 'Procesos ejecutivos','Cobro coactivo','Proceso monitorio','Jurisdicción voluntaria','Incidente',
- 'Medida cautelar','Acción de grupo','Otro'
+const LEGAL_CATALOG=[
+ {name:'Acción de tutela',sub:[]},
+ {name:'Acción popular',sub:[]},
+ {name:'Acción de cumplimiento',sub:[]},
+ {name:'Proceso ordinario',sub:[]},
+ {name:'Proceso abreviado',sub:[]},
+ {name:'Procesos ejecutivos',sub:[
+  'Ejecutivo de alimentos','Ejecutivo singular','Ejecutivo con garantía real','Ejecutivo hipotecario',
+  'Ejecutivo prendario','Ejecutivo de título valor','Ejecutivo de factura','Ejecutivo de pagaré',
+  'Ejecutivo de letra de cambio','Ejecutivo de cheque','Ejecutivo de sentencia',
+  'Ejecutivo de obligación clara, expresa y exigible','Ejecutivo de mínima cuantía','Otro ejecutivo'
+ ]},
+ {name:'Cobro coactivo',sub:[
+  'Entidad pública','Impuesto','Multa','Comparendo','Obligación administrativa','Otra'
+ ]},
+ {name:'Proceso monitorio',sub:[]},
+ {name:'Jurisdicción voluntaria',sub:[]},
+ {name:'Incidente',sub:[]},
+ {name:'Medida cautelar',sub:[]},
+ {name:'Acción de grupo',sub:[]},
+ {name:'Otro',sub:[]}
 ];
 const DEPARTMENTS=['Amazonas','Antioquia','Arauca','Atlántico','Bolívar','Boyacá','Caldas','Caquetá','Casanare','Cauca','Cesar','Chocó','Córdoba','Cundinamarca','Bogotá D.C.','Guainía','Guaviare','Huila','La Guajira','Magdalena','Meta','Nariño','Norte de Santander','Putumayo','Quindío','Risaralda','San Andrés y Providencia','Santander','Sucre','Tolima','Valle del Cauca','Vaupés','Vichada'];
 const AUTHORITY_TYPES=['Juzgado Civil','Juzgado Penal','Juzgado Laboral','Juzgado de Familia','Juzgado de Ejecución de Penas','Juzgado Promiscuo','Tribunal Superior','Consejo de Estado','Corte Suprema de Justicia','Corte Constitucional','Jurisdicción Especial para la Paz','Autoridad Administrativa','Entidad Pública','No sé','Otro'];
@@ -33,7 +50,7 @@ function App(){
  async function loadCases(){
   const {data,error}=await supabase
    .from('cases')
-   .select('id,title,status,priority,created_at,legal_category,acting_as')
+   .select('id,title,status,priority,created_at,legal_category,legal_subcategory,acting_as')
    .eq('user_id',session.user.id)
    .order('created_at',{ascending:false});
   if(error){
@@ -99,7 +116,7 @@ function Dashboard({session,cases,refresh}){
    </div>}
    {open&&<CaseForm session={session} profileData={profileData} saving={false} onClose={closeForm} onSaved={(id,m,t)=>{setCaseNumber(id);setMsg(m);setMsgType(t);refresh();}}/>}
    <div className="caseList">
-    {cases.length?cases.map(c=><article className="case" key={c.id}><FolderOpen size={22}/><div><b>{c.title}</b><span>{[c.legal_category,c.acting_as==='representative'?'En representación':null].filter(Boolean).join(' · ')||c.status==='received'?'Recibido':c.status}</span></div><Clock3 size={17}/></article>):<div className="empty"><FolderOpen size={38}/><b>Aún no tienes casos</b><span>Comienza con "Nuevo caso".</span></div>}
+    {cases.length?cases.map(c=><article className="case" key={c.id}><FolderOpen size={22}/><div><b>{c.title}</b><span>{[c.legal_category,c.legal_subcategory,c.acting_as==='representative'?'En representación':null].filter(Boolean).join(' · ')||c.status==='received'?'Recibido':c.status}</span></div><Clock3 size={17}/></article>):<div className="empty"><FolderOpen size={38}/><b>Aún no tienes casos</b><span>Comienza con "Nuevo caso".</span></div>}
    </div>
   </>}
   {tab==='profile'&&<ProfileForm session={session}/>}
@@ -149,6 +166,11 @@ function CaseForm({session,profileData,onClose,onSaved}){
   }
   if(!legalCategory){
    setFormError('Debes seleccionar una categoría jurídica.');
+   return;
+  }
+  const catEntry=LEGAL_CATALOG.find(c=>c.name===legalCategory);
+  if(catEntry&&catEntry.sub.length>0&&!legalSubcategory){
+   setFormError('Debes seleccionar una sub-categoría para "'+legalCategory+'".');
    return;
   }
   if(actingAs==='representative'&&!repName.trim()){
@@ -291,13 +313,18 @@ function CaseForm({session,profileData,onClose,onSaved}){
     <label>Categoría jurídica principal <span className="req">*</span></label>
     <select value={legalCategory} onChange={e=>{setLegalCategory(e.target.value);setLegalSubcategory('')}} disabled={saving}>
      <option value="">Selecciona una categoría...</option>
-     {LEGAL_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
+     {LEGAL_CATALOG.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}
     </select>
    </div>
-   <div className="formGroup">
-    <label>Sub-categoría (opcional)</label>
-    <input value={legalSubcategory} onChange={e=>setLegalSubcategory(e.target.value)} disabled={saving} placeholder="Ej: Tipo específico de proceso..."/>
-   </div>
+   {legalCategory&&LEGAL_CATALOG.find(c=>c.name===legalCategory)?.sub?.length>0?(
+    <div className="formGroup">
+     <label>Sub-categoría <span className="req">*</span></label>
+     <select value={legalSubcategory} onChange={e=>setLegalSubcategory(e.target.value)} disabled={saving}>
+      <option value="">Selecciona una sub-categoría...</option>
+      {LEGAL_CATALOG.find(c=>c.name===legalCategory).sub.map(s=><option key={s} value={s}>{s}</option>)}
+     </select>
+    </div>
+   ):null}
   </CollapsibleSection>
 
   {/* Section 4: Location and authority */}
