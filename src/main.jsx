@@ -65,6 +65,7 @@ function App(){
  const [roleLoading,setRoleLoading]=useState(true);
  const [route,setRoute]=useState('dashboard');
  const [pendingCaseId,setPendingCaseId]=useState(null);
+ const [adminViewCase,setAdminViewCase]=useState(null);
  useEffect(()=>{
   supabase.auth.getSession().then(({data})=>setSession(data.session));
   const {data}=supabase.auth.onAuthStateChange((_e,s)=>{
@@ -83,23 +84,27 @@ function App(){
    const role=(profile?.role)||(session.user.email==='notipersonales2026@gmail.com'?'admin':'client');
    setUserRole(role);
    setRoleLoading(false);
-   const hash=window.location.hash.replace('#/','').replace('#','');
-   if(hash==='admin'){setRoute(role==='admin'?'admin':'dashboard')}else if(hash==='dashboard'){setRoute('dashboard')}else{setRoute(role==='admin'?'admin':'dashboard')}
+   if(role==='admin'){setRoute('admin')}
+   else{
+    const hash=window.location.hash.replace('#/','').replace('#','');
+    if(hash==='admin'){setRoute('dashboard')}else{setRoute('dashboard')}
+   }
   })();
  },[session]);
  useEffect(()=>{if(session) loadCases();else setCases([])},[session]);
  useEffect(()=>{
   const onHashChange=()=>{
    if(!session)return;
+   if(userRole==='admin'){setRoute('admin');return}
    const hash=window.location.hash.replace('#/','').replace('#','');
-   if(hash==='admin'){setRoute(userRole==='admin'?'admin':'dashboard')}
+   if(hash==='admin'){setRoute('dashboard')}
    else if(hash==='dashboard'){setRoute('dashboard')}
   };
   window.addEventListener('hashchange',onHashChange);
   return()=>window.removeEventListener('hashchange',onHashChange);
  },[session,userRole]);
  useEffect(()=>{if(session&&route)window.location.hash=`#/${route}`},[session,route]);
- async function auth(e){e.preventDefault();setMsg('');try{if(mode==='login'){const {error}=await supabase.auth.signInWithPassword({email,password});if(error)setMsg(error.message);else setMsg('Sesión iniciada.')}else{if(mode==='forgot'){const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:`${window.location.origin}/#/reset-password`});if(error){setMsg(error.message);return}setMsg('Te enviamos un enlace de restablecimiento a tu correo.');return}if(mode==='reset-password'){if(password.length<8){setMsg('La contraseña debe tener al menos 8 caracteres.');return}const {error}=await supabase.auth.updateUser({password});if(error){setMsg(error.message);return}setMsg('Contraseña actualizada correctamente. Ya puedes ingresar.');setMode('login');return}if(!name.trim()){setMsg('El nombre completo es obligatorio.');return}if(!signupCedula.trim()){setMsg('La cédula o documento de identidad es obligatorio.');return}if(!signupPhone.trim()){setMsg('El teléfono de contacto es obligatorio.');return}if(!termsAccepted){setMsg('Debes aceptar los Términos y Condiciones del servicio.');return}if(!dataAuthAccepted){setMsg('Debes autorizar el tratamiento de tus datos personales conforme a la Ley 1581 de 2012.');return}const {data,error}=await supabase.auth.signUp({email,password,options:{data:{full_name:name.trim(),cedula:signupCedula.trim(),phone:signupPhone.trim(),data_consent:true,consent_date:new Date().toISOString()}}});if(error){setMsg(error.message);return}if(data.user){try{await supabase.from('profiles').upsert({id:data.user.id,full_name:name.trim(),cedula:signupCedula.trim(),phone:signupPhone.trim(),email:email,data_consent:true,consent_date:new Date().toISOString()},{onConflict:'id'})}catch(profileErr){}try{fetch(`${supabaseUrl}/functions/v1/send-email`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${supabaseKey}`},body:JSON.stringify({type:'new_client',client_name:name.trim()||email,client_email:email})}).catch(()=>{})}catch(emailErr){}}setMsg('Cuenta creada correctamente.')}}catch(err){setMsg('Ocurrió un error inesperado. Intenta nuevamente.')}}
+ async function auth(e){e.preventDefault();setMsg('');try{if(mode==='login'){const {data:lData,error}=await supabase.auth.signInWithPassword({email,password});if(error)setMsg(error.message);else{const {data:profile}=await supabase.from('profiles').select('role').eq('id',lData.user.id).maybeSingle();const role=(profile?.role)||(email==='notipersonales2026@gmail.com'?'admin':'client');setMsg(role==='admin'?'Sesión iniciada. Redirigiendo al panel de administración...':'Sesión iniciada. Redirigiendo a tu panel...');}}else{if(mode==='forgot'){const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:`${window.location.origin}/#/reset-password`});if(error){setMsg(error.message);return}setMsg('Te enviamos un enlace de restablecimiento a tu correo.');return}if(mode==='reset-password'){if(password.length<8){setMsg('La contraseña debe tener al menos 8 caracteres.');return}const {error}=await supabase.auth.updateUser({password});if(error){setMsg(error.message);return}setMsg('Contraseña actualizada correctamente. Ya puedes ingresar.');setMode('login');return}if(!name.trim()){setMsg('El nombre completo es obligatorio.');return}if(!signupCedula.trim()){setMsg('La cédula o documento de identidad es obligatorio.');return}if(!signupPhone.trim()){setMsg('El teléfono de contacto es obligatorio.');return}if(!termsAccepted){setMsg('Debes aceptar los Términos y Condiciones del servicio.');return}if(!dataAuthAccepted){setMsg('Debes autorizar el tratamiento de tus datos personales conforme a la Ley 1581 de 2012.');return}const {data,error}=await supabase.auth.signUp({email,password,options:{data:{full_name:name.trim(),cedula:signupCedula.trim(),phone:signupPhone.trim(),data_consent:true,consent_date:new Date().toISOString()}}});if(error){setMsg(error.message);return}if(data.user){try{await supabase.from('profiles').upsert({id:data.user.id,full_name:name.trim(),cedula:signupCedula.trim(),phone:signupPhone.trim(),email:email,data_consent:true,consent_date:new Date().toISOString()},{onConflict:'id'})}catch(profileErr){}try{fetch(`${supabaseUrl}/functions/v1/send-email`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${supabaseKey}`},body:JSON.stringify({type:'new_client',client_name:name.trim()||email,client_email:email})}).catch(()=>{})}catch(emailErr){}}setMsg('Cuenta creada correctamente.')}}catch(err){setMsg('Ocurrió un error inesperado. Intenta nuevamente.')}}
  async function loadCases(){
   const {data,error}=await supabase
    .from('cases')
@@ -116,13 +121,13 @@ function App(){
   if(target==='admin'&&userRole!=='admin'){setRoute('dashboard');return}
   setRoute(target);
  }
- function handleAdminOpenCase(id){setPendingCaseId(id);setRoute('dashboard')}
- async function logout(){await supabase.auth.signOut();setCases([]);setEmail('');setPassword('');setName('');setMsg('');setUserRole(null);setRoute('dashboard');if(window.location.hash)history.replaceState(null,'',window.location.pathname+window.location.search)}
+ function handleAdminOpenCase(id){setAdminViewCase(id)}
+ async function logout(){await supabase.auth.signOut();setCases([]);setEmail('');setPassword('');setName('');setMsg('');setUserRole(null);setRoute('dashboard');setAdminViewCase(null);setPendingCaseId(null);if(window.location.hash)history.replaceState(null,'',window.location.pathname+window.location.search)}
  return <div className="app">
   <header><div className="brand"><div className="logo"><img src="/lexacaso.jpeg" alt="LEXACASO"/></div><div><b>LEXACASO</b><span>Tu caso, en buenas manos</span></div></div>
    <div className="headerRight">
     {session&&userRole==='admin'&&<button className={route==='admin'?'ghost activeNav':'ghost'} onClick={()=>navigate('admin')}><Settings size={16}/> Admin</button>}
-    {session&&<button className={route==='dashboard'?'ghost activeNav':'ghost'} onClick={()=>navigate('dashboard')}><FolderOpen size={16}/> Mi panel</button>}
+    {session&&userRole!=='admin'&&<button className={route==='dashboard'?'ghost activeNav':'ghost'} onClick={()=>navigate('dashboard')}><FolderOpen size={16}/> Mi panel</button>}
     {session?<button className="ghost" onClick={logout}><LogOut size={17}/> Salir</button>:<button className="ghost" onClick={()=>setMode('login')}><LogIn size={17}/> Ingresar</button>}
    </div>
   </header>
@@ -132,8 +137,9 @@ function App(){
    {!session&&mode==='forgot'&&<section className="auth"><button className="back" onClick={()=>{setMsg('');setMode('login')}}>← Volver a iniciar sesión</button><h2>Recuperar contraseña</h2><p>Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.</p><form onSubmit={auth}><input type="email" placeholder="Correo electrónico" value={email} onChange={e=>setEmail(e.target.value)} required/><button className="primary"><Mail size={16}/> Enviar enlace</button></form>{msg&&<div className="notice">{msg}</div>}<button className="link" onClick={()=>{setMsg('');setMode('login')}} style={{display:'block',textAlign:'center',margin:'12px auto 0'}}>Volver a iniciar sesión</button></section>}
    {!session&&mode==='reset-password'&&<section className="auth"><button className="back" onClick={()=>{setMsg('');setMode('login')}}>← Volver a iniciar sesión</button><h2>Nueva contraseña</h2><p>Ingresa tu nueva contraseña para completar el restablecimiento.</p><form onSubmit={auth}><input type="password" placeholder="Nueva contraseña (mínimo 8 caracteres)" value={password} onChange={e=>setPassword(e.target.value)} minLength="8" required/><button className="primary"><KeyRound size={16}/> Actualizar contraseña</button></form>{msg&&<div className="notice">{msg}</div>}</section>}
    {session&&roleLoading&&<div className="profileLoading"><Loader2 size={28} className="spin"/><span>Cargando tu panel...</span></div>}
-   {session&&!roleLoading&&userRole==='admin'&&route==='admin'&&<AdminPanel session={session} onOpenCase={handleAdminOpenCase}/>}
-   {session&&!roleLoading&&route==='dashboard'&&<Dashboard session={session} cases={cases} refresh={loadCases} userRole={userRole} pendingCaseId={pendingCaseId} onPendingCaseConsumed={()=>setPendingCaseId(null)}/>}
+   {session&&!roleLoading&&userRole==='admin'&&adminViewCase&&<CaseDetail session={session} caseId={adminViewCase} isAdmin={true} onBack={()=>setAdminViewCase(null)}/>}
+   {session&&!roleLoading&&userRole==='admin'&&!adminViewCase&&<AdminPanel session={session} onOpenCase={handleAdminOpenCase}/>}
+   {session&&!roleLoading&&userRole!=='admin'&&route==='dashboard'&&<Dashboard session={session} cases={cases} refresh={loadCases} userRole={userRole} pendingCaseId={pendingCaseId} onPendingCaseConsumed={()=>setPendingCaseId(null)}/>}
   </main>
   <footer>Plataforma de orientación e información jurídica y análisis documental automatizado · No constituye representación legal.</footer>
   <WhatsAppButton/>
@@ -1035,6 +1041,11 @@ function AdminPanel({session,onOpenCase}){
  const [adminDocs,setAdminDocs]=useState([]);
  const [adminDocsLoading,setAdminDocsLoading]=useState(false);
  const [expandedDocClient,setExpandedDocClient]=useState(null);
+ const [editingClient,setEditingClient]=useState(null);
+ const [clientEditForm,setClientEditForm]=useState({full_name:'',cedula:'',phone:'',email:''});
+ const [clientEditSaving,setClientEditSaving]=useState(false);
+ const [clientEditError,setClientEditError]=useState('');
+ const [deletingClient,setDeletingClient]=useState(null);
 
  async function load(){
   setLoading(true);setError('');
@@ -1214,6 +1225,45 @@ function AdminPanel({session,onOpenCase}){
    setClientActionLoading(null);
   }
  }
+ function startEditClient(p){
+  setEditingClient(p.id);
+  setClientEditForm({full_name:p.full_name||'',cedula:p.cedula||'',phone:p.phone||'',email:p.email||''});
+  setClientEditError('');
+ }
+ function cancelEditClient(){setEditingClient(null);setClientEditError('')}
+ async function saveClientEdit(e){
+  e.preventDefault();setClientEditError('');
+  if(!clientEditForm.full_name.trim()){setClientEditError('El nombre es obligatorio.');return}
+  setClientEditSaving(true);
+  try{
+   const {error:profileErr}=await supabase.rpc('admin_update_profile',{p_user_id:editingClient,p_full_name:clientEditForm.full_name.trim(),p_cedula:clientEditForm.cedula.trim()||null,p_phone:clientEditForm.phone.trim()||null,p_email:clientEditForm.email.trim()||null});
+   if(profileErr){setClientEditError('No se pudo actualizar el perfil: '+profileErr.message);return}
+   if(clientEditForm.email.trim()){
+    const {data:emailRes,error:emailErr}=await supabase.functions.invoke('admin-client-management',{body:{action:'update_email',user_id:editingClient,email:clientEditForm.email.trim()}});
+    if(emailErr||(emailRes&&emailRes.error)){setClientEditError('El perfil se actualizó, pero el correo no pudo cambiarse: '+(emailErr?.message||emailRes?.error||''));setEditingClient(null);load();return}
+   }
+   setEditingClient(null);load();setMessage('Datos del cliente actualizados correctamente.');
+  }catch(err){
+   setClientEditError('Error inesperado al actualizar.');
+  }finally{
+   setClientEditSaving(false);
+  }
+ }
+ async function deleteClient(p){
+  if(!confirm('¿Eliminar definitivamente la cuenta de '+(p.full_name||p.email||'este cliente')+'? Esta acción no se puede deshacer y borrará todos sus datos asociados.'))return;
+  setDeletingClient(p.id);
+  try{
+   const {data,error}=await supabase.functions.invoke('admin-client-management',{body:{action:'delete_user',user_id:p.id}});
+   if(error){setMessage('No se pudo eliminar: '+error.message);return}
+   if(data&&data.error){setMessage(data.error);return}
+   setMessage('Cliente eliminado correctamente.');
+   load();
+  }catch(err){
+   setMessage('Error inesperado al eliminar el cliente.');
+  }finally{
+   setDeletingClient(null);
+  }
+ }
 
  return <div className="adminPanel">
   <div className="dashHead"><div><div className="badge"><UserCog size={14}/> Acceso autorizado</div><h2>Panel de administración</h2><p>Solo muestra información de casos con autorización vigente para esta cuenta.</p></div><button className="primary" onClick={exportExcel}><Download size={17}/> Exportar Excel</button></div>
@@ -1235,10 +1285,19 @@ function AdminPanel({session,onOpenCase}){
   </>}
 
   {section==='clients'&&<section className="adminCard adminWideCard">
-   <div className="adminCardHeader"><div><h3><Users size={18}/> Gestión de clientes</h3><p className="adminCardHint">Lista completa de clientes registrados, separados por cédula y nombre. Cambia el rol o brinda soporte de contraseña según sea necesario.</p></div></div>
+   <div className="adminCardHeader"><div><h3><Users size={18}/> Gestión de clientes</h3><p className="adminCardHint">Lista completa de clientes registrados. Edita los datos del cliente, cambia el rol, brinda soporte de contraseña o elimina cuentas.</p></div></div>
    {loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando clientes...</div>:clientProfiles.length?<div className="authorizationAdminList">
     {clientProfiles.map(p=><div className="authorizationAdminItem" key={p.id} style={{flexDirection:'column',alignItems:'stretch',gap:'10px'}}>
-     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'14px',flexWrap:'wrap'}}>
+     {editingClient===p.id?<form className="caseEditForm" onSubmit={saveClientEdit}>
+      {clientEditError&&<div className="notice error"><AlertCircle size={16}/><span>{clientEditError}</span></div>}
+      <div className="formGroup"><label>Nombre completo <span className="req">*</span></label><input value={clientEditForm.full_name} onChange={e=>setClientEditForm({...clientEditForm,full_name:e.target.value})} disabled={clientEditSaving} placeholder="Nombre y apellidos"/></div>
+      <div className="formGrid2">
+       <div className="formGroup"><label>Cédula</label><input value={clientEditForm.cedula} onChange={e=>setClientEditForm({...clientEditForm,cedula:e.target.value})} disabled={clientEditSaving} placeholder="Ej: 12345678"/></div>
+       <div className="formGroup"><label>Teléfono</label><input value={clientEditForm.phone} onChange={e=>setClientEditForm({...clientEditForm,phone:e.target.value})} disabled={clientEditSaving} placeholder="Ej: 3101234567"/></div>
+      </div>
+      <div className="formGroup"><label>Correo electrónico</label><input type="email" value={clientEditForm.email} onChange={e=>setClientEditForm({...clientEditForm,email:e.target.value})} disabled={clientEditSaving} placeholder="correo@ejemplo.com"/></div>
+      <div className="row"><button type="submit" className="primary" disabled={clientEditSaving}>{clientEditSaving?<><Loader2 size={16} className="spin"/> Guardando...</>:<><CheckCircle2 size={16}/> Guardar cambios</>}</button><button type="button" className="ghost" onClick={cancelEditClient} disabled={clientEditSaving}>Cancelar</button></div>
+     </form>:<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'14px',flexWrap:'wrap'}}>
       <div><b>{p.full_name||'Sin nombre'}</b><span style={{display:'block'}}>Cédula: {p.cedula||'—'} · Cel: {p.phone||'—'}</span><span style={{display:'block'}}><Mail size={12} style={{display:'inline',verticalAlign:'middle',marginRight:'3px'}}/>{p.email||'—'}</span><small>Registrado: {p.created_at?new Date(p.created_at).toLocaleDateString('es-CO'):'—'}{p.data_consent?' · Datos autorizados':' · Sin autorización de datos'}</small></div>
       <div className="roleSwitcher">
        <select className="roleSelect" value={p.role||'client'} onChange={e=>changeUserRole(p.id,e.target.value)}>
@@ -1246,12 +1305,14 @@ function AdminPanel({session,onOpenCase}){
         <option value="admin">Administrador</option>
        </select>
       </div>
-     </div>
-     <div className="timelineActions" style={{paddingTop:0,borderTop:'none'}}>
-      <button className="ghost sm" onClick={()=>sendResetLink(p)} disabled={clientActionLoading===p.id}>{clientActionLoading===p.id?<Loader2 size={14} className="spin"/>:<><KeyRound size={14}/> Enviar enlace de restablecimiento</>}</button>
-      <button className="ghost sm" onClick={()=>{setTempPasswordForm(tempPasswordForm===p.id?null:p.id);setTempPasswordValue('')}}><LockKeyhole size={14}/> Asignar contraseña temporal</button>
-     </div>
-     {tempPasswordForm===p.id&&<div style={{padding:'8px 0 0'}}><form onSubmit={e=>{e.preventDefault();setTempPassword(p.id,p.email)}} style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}><input type="password" placeholder="Nueva contraseña temporal (mín. 8 caracteres)" value={tempPasswordValue} onChange={e=>setTempPasswordValue(e.target.value)} minLength="8" required style={{flex:'1',minWidth:'200px',padding:'10px 12px',border:'1px solid #dfe4ec',borderRadius:'10px',font:'inherit'}}/><button type="submit" className="primary" style={{padding:'10px 16px',fontSize:'13px',whiteSpace:'nowrap'}} disabled={clientActionLoading===p.id}>{clientActionLoading===p.id?<Loader2 size={14} className="spin"/>:'Asignar'}</button><button type="button" className="ghost sm" onClick={()=>{setTempPasswordForm(null);setTempPasswordValue('')}}>Cancelar</button></form></div>}
+     </div>}
+     {editingClient!==p.id&&<div className="timelineActions" style={{paddingTop:0,borderTop:'none'}}>
+      <button className="ghost sm" onClick={()=>startEditClient(p)}><Edit3 size={14}/> Editar datos</button>
+      <button className="ghost sm" onClick={()=>sendResetLink(p)} disabled={clientActionLoading===p.id}>{clientActionLoading===p.id?<Loader2 size={14} className="spin"/>:<><KeyRound size={14}/> Enviar enlace</>}</button>
+      <button className="ghost sm" onClick={()=>{setTempPasswordForm(tempPasswordForm===p.id?null:p.id);setTempPasswordValue('')}}><LockKeyhole size={14}/> Contraseña temporal</button>
+      <button className="ghost sm danger" onClick={()=>deleteClient(p)} disabled={deletingClient===p.id}>{deletingClient===p.id?<Loader2 size={14} className="spin"/>:<><Trash2 size={14}/> Eliminar</>}</button>
+     </div>}
+     {tempPasswordForm===p.id&&editingClient!==p.id&&<div style={{padding:'8px 0 0'}}><form onSubmit={e=>{e.preventDefault();setTempPassword(p.id,p.email)}} style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}><input type="password" placeholder="Nueva contraseña temporal (mín. 8 caracteres)" value={tempPasswordValue} onChange={e=>setTempPasswordValue(e.target.value)} minLength="8" required style={{flex:'1',minWidth:'200px',padding:'10px 12px',border:'1px solid #dfe4ec',borderRadius:'10px',font:'inherit'}}/><button type="submit" className="primary" style={{padding:'10px 16px',fontSize:'13px',whiteSpace:'nowrap'}} disabled={clientActionLoading===p.id}>{clientActionLoading===p.id?<Loader2 size={14} className="spin"/>:'Asignar'}</button><button type="button" className="ghost sm" onClick={()=>{setTempPasswordForm(null);setTempPasswordValue('')}}>Cancelar</button></form></div>}
     </div>)}
    </div>:<div className="empty"><Users size={32}/><b>Sin clientes registrados</b><span>Los clientes aparecerán aquí cuando se registren.</span></div>}
   </section>}
