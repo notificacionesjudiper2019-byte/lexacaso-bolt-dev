@@ -20,3 +20,9 @@
 .notifFilters .searchField{flex:1;min-width:200px}
 .notifFilters .radioRow{flex-wrap:nowrap}
 @media(max-width:700px){.notifFilters{flex-direction:column}.notifFilters .radioRow{flex-wrap:wrap}}
+.headerRight{display:flex;align-items:center;gap:8px}
+.ghost.activeNav{font-weight:800;border-bottom:2px solid var(--gold);padding-bottom:6px}
+.roleSwitcher{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.roleSelect{padding:7px 12px;border:1px solid #dfe4ec;border-radius:8px;font:inherit;font-size:13px;font-weight:600;background:#fff;color:#34415c;cursor:pointer;outline:none}
+.roleSelect:focus{border-color:#6b8cda}
+@media(max-width:700px){.headerRight{gap:4px}.headerRight .ghost{padding:8px}.headerRight .ghost svg{width:15px;height:15px}}

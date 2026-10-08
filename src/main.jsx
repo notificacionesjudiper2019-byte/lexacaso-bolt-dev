@@ -55,17 +55,44 @@ const CONSENT_TEXT='Autorizo el tratamiento de mis datos personales conforme al 
 
 function App(){
  const [session,setSession]=useState(null),[mode,setMode]=useState('home'),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[name,setName]=useState(''),[msg,setMsg]=useState(''),[cases,setCases]=useState([]);
+ const [userRole,setUserRole]=useState(null);
+ const [roleLoading,setRoleLoading]=useState(true);
+ const [route,setRoute]=useState('dashboard');
+ const [pendingCaseId,setPendingCaseId]=useState(null);
  useEffect(()=>{
   supabase.auth.getSession().then(({data})=>setSession(data.session));
   const {data}=supabase.auth.onAuthStateChange((_e,s)=>{
     (async()=>{
       setSession(s);
-      if(!s){setCases([]);setEmail('');setPassword('');setName('');setMsg('')}
+      if(!s){setCases([]);setEmail('');setPassword('');setName('');setMsg('');setUserRole(null);setRoleLoading(true);setRoute('dashboard')}
     })();
   });
   return()=>data.subscription.unsubscribe();
  },[]);
+ useEffect(()=>{
+  if(!session){setUserRole(null);setRoleLoading(true);return}
+  (async()=>{
+   setRoleLoading(true);
+   const {data:profile}=await supabase.from('profiles').select('role').eq('id',session.user.id).maybeSingle();
+   const role=(profile?.role)||(session.user.email==='notipersonales2026@gmail.com'?'admin':'client');
+   setUserRole(role);
+   setRoleLoading(false);
+   const hash=window.location.hash.replace('#/','').replace('#','');
+   if(hash==='admin'){setRoute(role==='admin'?'admin':'dashboard')}else if(hash==='dashboard'){setRoute('dashboard')}else{setRoute(role==='admin'?'admin':'dashboard')}
+  })();
+ },[session]);
  useEffect(()=>{if(session) loadCases();else setCases([])},[session]);
+ useEffect(()=>{
+  const onHashChange=()=>{
+   if(!session)return;
+   const hash=window.location.hash.replace('#/','').replace('#','');
+   if(hash==='admin'){setRoute(userRole==='admin'?'admin':'dashboard')}
+   else if(hash==='dashboard'){setRoute('dashboard')}
+  };
+  window.addEventListener('hashchange',onHashChange);
+  return()=>window.removeEventListener('hashchange',onHashChange);
+ },[session,userRole]);
+ useEffect(()=>{if(session&&route)window.location.hash=`#/${route}`},[session,route]);
  async function auth(e){e.preventDefault();setMsg(''); const fn=mode==='login'?supabase.auth.signInWithPassword({email,password}):supabase.auth.signUp({email,password,options:{data:{full_name:name}}}); const {error}=await fn;if(error)setMsg(error.message);else setMsg(mode==='login'?'Sesión iniciada.':'Cuenta creada correctamente.')}
  async function loadCases(){
   const {data,error}=await supabase
@@ -79,13 +106,26 @@ function App(){
    setCases(data||[]);
   }
  }
- async function logout(){await supabase.auth.signOut();setCases([]);setEmail('');setPassword('');setName('');setMsg('');setMode('home')}
+ function navigate(target){
+  if(target==='admin'&&userRole!=='admin'){setRoute('dashboard');return}
+  setRoute(target);
+ }
+ function handleAdminOpenCase(id){setPendingCaseId(id);setRoute('dashboard')}
+ async function logout(){await supabase.auth.signOut();setCases([]);setEmail('');setPassword('');setName('');setMsg('');setUserRole(null);setRoute('dashboard');if(window.location.hash)history.replaceState(null,'',window.location.pathname+window.location.search)}
  return <div className="app">
-  <header><div className="brand"><div className="logo"><img src="/lexacaso.jpeg" alt="LEXACASO"/></div><div><b>LEXACASO</b><span>Tu caso, en buenas manos</span></div></div>{session?<button className="ghost" onClick={logout}><LogOut size={17}/> Salir</button>:<button className="ghost" onClick={()=>setMode('login')}><LogIn size={17}/> Ingresar</button>}</header>
+  <header><div className="brand"><div className="logo"><img src="/lexacaso.jpeg" alt="LEXACASO"/></div><div><b>LEXACASO</b><span>Tu caso, en buenas manos</span></div></div>
+   <div className="headerRight">
+    {session&&userRole==='admin'&&<button className={route==='admin'?'ghost activeNav':'ghost'} onClick={()=>navigate('admin')}><Settings size={16}/> Admin</button>}
+    {session&&<button className={route==='dashboard'?'ghost activeNav':'ghost'} onClick={()=>navigate('dashboard')}><FolderOpen size={16}/> Mi panel</button>}
+    {session?<button className="ghost" onClick={logout}><LogOut size={17}/> Salir</button>:<button className="ghost" onClick={()=>setMode('login')}><LogIn size={17}/> Ingresar</button>}
+   </div>
+  </header>
   <main>
    {!session&&mode==='home'&&<section className="hero"><div className="badge"><ShieldCheck size={16}/> Espacio privado y organizado</div><h1>Expón tu caso.<br/><em>Ordena la información.</em></h1><p>Presenta hechos y documentos para organizar tu caso, generar resúmenes, cronologías y líneas de análisis. La plataforma ofrece información y orientación; no sustituye la asesoría o representación profesional.</p><button className="primary" onClick={()=>setMode('signup')}>Expón tu caso <ArrowRight size={18}/></button><div className="cards"><div><Upload/><b>Documentos</b><span>Adjunta archivos relevantes de forma privada.</span></div><div><FileText/><b>Análisis</b><span>Resumen, hechos, problemas y fuentes para revisión.</span></div><div><ShieldCheck/><b>Privacidad</b><span>Tu información queda separada por cuenta.</span></div></div></section>}
    {!session&&(mode==='login'||mode==='signup')&&<section className="auth"><button className="back" onClick={()=>setMode('home')}>← Volver</button><h2>{mode==='login'?'Ingresar':'Crear cuenta'}</h2><p>Tu cuenta permite mantener tus casos separados y privados.</p><form onSubmit={auth}>{mode==='signup'&&<input placeholder="Nombre" value={name} onChange={e=>setName(e.target.value)} required/>}<input type="email" placeholder="Correo electrónico" value={email} onChange={e=>setEmail(e.target.value)} required/><input type="password" placeholder="Contraseña" value={password} onChange={e=>setPassword(e.target.value)} minLength="8" required/><button className="primary">{mode==='login'?'Ingresar':'Crear cuenta'}</button></form>{msg&&<div className="notice">{msg}</div>}<button className="link" onClick={()=>setMode(mode==='login'?'signup':'login')}>{mode==='login'?'Crear una cuenta':'Ya tengo una cuenta'}</button></section>}
-   {session&&<Dashboard session={session} cases={cases} refresh={loadCases}/>}
+   {session&&roleLoading&&<div className="profileLoading"><Loader2 size={28} className="spin"/><span>Cargando tu panel...</span></div>}
+   {session&&!roleLoading&&userRole==='admin'&&route==='admin'&&<AdminPanel session={session} onOpenCase={handleAdminOpenCase}/>}
+   {session&&!roleLoading&&route==='dashboard'&&<Dashboard session={session} cases={cases} refresh={loadCases} userRole={userRole} pendingCaseId={pendingCaseId} onPendingCaseConsumed={()=>setPendingCaseId(null)}/>}
   </main>
   <footer>Plataforma de orientación e información jurídica y análisis documental automatizado · No constituye representación legal.</footer>
   <WhatsAppButton/>
@@ -98,7 +138,7 @@ function WhatsAppButton(){
   <span className="waTooltip">¿Necesitas ayuda? Escríbenos por WhatsApp.</span>
  </a>
 }
-function Dashboard({session,cases,refresh}){
+function Dashboard({session,cases,refresh,userRole,pendingCaseId,onPendingCaseConsumed}){
  const [tab,setTab]=useState('cases');
  const [open,setOpen]=useState(false);
  const [msg,setMsg]=useState('');
@@ -106,10 +146,14 @@ function Dashboard({session,cases,refresh}){
  const [caseNumber,setCaseNumber]=useState('');
  const [profileData,setProfileData]=useState(null);
  const [selectedCaseId,setSelectedCaseId]=useState(null);
- const [isAdmin,setIsAdmin]=useState(false);
+ const [isAdmin,setIsAdmin]=useState(userRole==='admin');
  const [unreadCount,setUnreadCount]=useState(0);
+ useEffect(()=>{setIsAdmin(userRole==='admin')},[userRole]);
  useEffect(()=>{supabase.rpc('is_admin').then(({data})=>setIsAdmin(data===true))},[session.user.id]);
  useEffect(()=>{loadUnread()},[session.user.id]);
+ useEffect(()=>{
+  if(pendingCaseId){setSelectedCaseId(pendingCaseId);onPendingCaseConsumed&&onPendingCaseConsumed()}
+ },[pendingCaseId,onPendingCaseConsumed]);
  async function loadUnread(){const {data}=await supabase.from('notifications').select('id',{count:'exact'}).eq('user_id',session.user.id).eq('is_read',false);setUnreadCount(data?data.length:0)}
 
  async function loadProfile(){
@@ -137,7 +181,6 @@ function Dashboard({session,cases,refresh}){
    <button className={tab==='cases'?'tab active':'tab'} onClick={()=>{setTab('cases');setMsg('');setMsgType('');setCaseNumber('')}}><FolderOpen size={17}/> Mis casos</button>
    <button className={tab==='profile'?'tab active':'tab'} onClick={()=>{setTab('profile');setMsg('');setMsgType('');setCaseNumber('')}}><User size={17}/> Mi perfil</button>
    <button className={tab==='notifications'?'tab active':'tab'} onClick={()=>{setTab('notifications');setMsg('');setMsgType('');setCaseNumber('')}}><Bell size={17}/> Notificaciones{unreadCount>0&&<span className="tabBadge">{unreadCount}</span>}</button>
-   {isAdmin&&<button className={tab==='admin'?'tab active':'tab'} onClick={()=>{setTab('admin');setMsg('');setMsgType('');setCaseNumber('')}}><Settings size={17}/> Administración</button>}
   </div>
   {tab==='cases'&&<>
    <div className="dashHead">
@@ -169,7 +212,6 @@ function Dashboard({session,cases,refresh}){
   </>}
   {tab==='profile'&&<ProfileForm session={session}/>}
   {tab==='notifications'&&<NotificationsPanel session={session} onOpenCase={(id)=>{setSelectedCaseId(id)}} onRead={loadUnread}/>}
-  {tab==='admin'&&isAdmin&&<AdminPanel session={session} onOpenCase={setSelectedCaseId}/>}
  </section>
 }
 function CollapsibleSection({title,icon:Icon,defaultOpen,children,required}){
@@ -933,6 +975,14 @@ function AdminPanel({session,onOpenCase}){
  const activeAuthorizations=authorizations.filter(item=>!item.revoked_at);
  const clientProfiles=profiles.filter(p=>p.role==='client'||p.role==='user'||!p.role);
  function setFilter(name,value){setFilters(prev=>({...prev,[name]:value}))}
+
+ async function changeUserRole(profileId,newRole){
+  const {error}=await supabase.rpc('set_user_role',{p_user_id:profileId,p_role:newRole});
+  if(error){setMessage('No se pudo cambiar el rol: '+error.message);return}
+  await supabase.rpc('record_audit_event',{p_action:'role_changed',p_target_user_id:profileId,p_details:{new_role:newRole}});
+  setMessage('Rol actualizado a '+newRole+'.');
+  load();
+ }
  async function exportExcel(){
   setMessage('');
   const {data,error:exportError}=await supabase.functions.invoke('export-cases-excel',{body:filters});
@@ -1013,11 +1063,16 @@ function AdminPanel({session,onOpenCase}){
   </>}
 
   {section==='clients'&&<section className="adminCard adminWideCard">
-   <div className="adminCardHeader"><div><h3><Users size={18}/> Clientes registrados</h3><p className="adminCardHint">Lista completa de usuarios con su rol y fecha de registro.</p></div></div>
-   {loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando clientes...</div>:clientProfiles.length?<div className="authorizationAdminList">
-    {clientProfiles.map(p=><div className="authorizationAdminItem" key={p.id}>
+   <div className="adminCardHeader"><div><h3><Users size={18}/> Gestión de clientes</h3><p className="adminCardHint">Lista completa de usuarios registrados. Cambia el rol entre Cliente y Administrador según sea necesario.</p></div></div>
+   {loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando clientes...</div>:profiles.length?<div className="authorizationAdminList">
+    {profiles.map(p=><div className="authorizationAdminItem" key={p.id}>
      <div><b>{p.full_name||'Sin nombre'}</b><span><Mail size={12}/> {p.email||'—'}</span><small>Registrado: {p.created_at?new Date(p.created_at).toLocaleDateString('es-CO'):'—'}</small></div>
-     <span className="caseStatus">{p.role==='admin'?'Administrador':'Cliente'}</span>
+     <div className="roleSwitcher">
+      <select className="roleSelect" value={p.role||'client'} onChange={e=>changeUserRole(p.id,e.target.value)}>
+       <option value="client">Cliente</option>
+       <option value="admin">Administrador</option>
+      </select>
+     </div>
     </div>)}
    </div>:<div className="empty"><Users size={32}/><b>Sin clientes registrados</b><span>Los clientes aparecerán aquí cuando se registren.</span></div>}
   </section>}
