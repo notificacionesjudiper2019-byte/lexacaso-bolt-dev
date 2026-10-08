@@ -9,7 +9,3 @@ entrypoint = "./functions/send-email/index.ts"
 [functions.admin-password]
 verify_jwt = true
 entrypoint = "./functions/admin-password/index.ts"
-
-[functions.admin-password]
-verify_jwt = true
-entrypoint = "./functions/admin-password/index.ts"

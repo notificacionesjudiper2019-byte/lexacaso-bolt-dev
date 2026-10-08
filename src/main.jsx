@@ -957,12 +957,15 @@ function AdminPanel({session,onOpenCase}){
  const [caseEditForm,setCaseEditForm]=useState({case_number:'',court:'',title:'',filing_date:'',attachment_url:'',status:'received'});
  const [caseEditSaving,setCaseEditSaving]=useState(false);
  const [caseEditError,setCaseEditError]=useState('');
+ const [clientActionLoading,setClientActionLoading]=useState(null);
+ const [tempPasswordForm,setTempPasswordForm]=useState(null);
+ const [tempPasswordValue,setTempPasswordValue]=useState('');
 
  async function load(){
   setLoading(true);setError('');
   const [{data:caseRows,error:caseError},{data:profileRows,error:profileError},{data:auditRows,error:auditError},{data:authorizationRows,error:authorizationError},{data:notifRows,error:notifError}]=await Promise.all([
    supabase.from('cases').select('*').order('updated_at',{ascending:false}),
-   supabase.from('profiles').select('id,full_name,cedula,phone,address,email,role,created_at'),
+   supabase.from('profiles').select('id,full_name,cedula,phone,address,email,role,created_at,data_consent'),
    supabase.from('audit_log').select('id,action,target_case_id,target_user_id,target_document_id,created_at,details').order('created_at',{ascending:false}).limit(100),
    supabase.from('case_authorizations').select('id,case_id,authorized_at,revoked_at').eq('user_id',session.user.id).order('authorized_at',{ascending:false}),
    supabase.from('notifications').select('*').order('created_at',{ascending:false}).limit(200)
@@ -1084,6 +1087,35 @@ function AdminPanel({session,onOpenCase}){
   const {error}=await supabase.from('cases').update({status:newStatus}).eq('id',caseId);
   if(error){setMessage('No se pudo cambiar el estado del caso.');return}
   load();setMessage('Estado del caso actualizado.');
+ }
+ async function sendResetLink(profile){
+  if(!profile||!profile.email){setMessage('Este cliente no tiene correo registrado.');return}
+  setClientActionLoading(profile.id);
+  try{
+   const {error}=await supabase.auth.resetPasswordForEmail(profile.email,{redirectTo:`${window.location.origin}/#/reset-password`});
+   if(error){setMessage('No se pudo enviar el enlace: '+error.message);return}
+   await supabase.rpc('record_audit_event',{p_action:'password_reset_link_sent',p_target_user_id:profile.id,p_details:{email:profile.email}}).catch(()=>{});
+   setMessage('Enlace de restablecimiento enviado a '+profile.email);
+  }catch(err){
+   setMessage('Error inesperado al enviar el enlace.');
+  }finally{
+   setClientActionLoading(null);
+  }
+ }
+ async function setTempPassword(profileId,profileEmail){
+  if(!tempPasswordValue||tempPasswordValue.length<8){setMessage('La contraseña debe tener al menos 8 caracteres.');return}
+  setClientActionLoading(profileId);
+  try{
+   const {data,error}=await supabase.functions.invoke('admin-password',{body:{action:'set_temp_password',user_id:profileId,temp_password:tempPasswordValue}});
+   if(error){setMessage('No se pudo asignar la contraseña: '+error.message);return}
+   if(data&&data.error){setMessage(data.error);return}
+   setMessage('Contraseña temporal asignada correctamente a '+profileEmail);
+   setTempPasswordForm(null);setTempPasswordValue('');
+  }catch(err){
+   setMessage('Error inesperado al asignar la contraseña.');
+  }finally{
+   setClientActionLoading(null);
+  }
  }
 
  return <div className="adminPanel">
