@@ -1,7 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {createClient} from '@supabase/supabase-js';
-import {Scale,ShieldCheck,Upload,FolderOpen,ArrowRight,LogIn,LogOut,CirclePlus as PlusCircle,Clock3,FileText,Loader2,AlertCircle,CheckCircle2,User,ChevronDown,ChevronRight,MapPin,Gavel,FileStack,Users,ArrowLeft,Download,Trash2,Eye,EyeOff,Calendar,Clock,MessageCircle,Plus,Activity} from 'lucide-react';
+import {Scale,ShieldCheck,Upload,FolderOpen,ArrowRight,LogIn,LogOut,CirclePlus as PlusCircle,Clock3,FileText,Loader2,AlertCircle,CheckCircle2,User,ChevronDown,ChevronRight,MapPin,Gavel,FileStack,Users,ArrowLeft,Download,Trash2,Calendar,MessageCircle,Plus,Activity,Settings,Search,LockKeyhole,UserCog,CheckSquare} from 'lucide-react';
 import './styles.css';
 
 const supabaseUrl=import.meta.env.VITE_SUPABASE_URL;
@@ -48,6 +48,8 @@ const ACTION_STATUSES=[
 ];
 const WHATSAPP_NUMBER='57310560386';
 const WHATSAPP_MSG='Hola, necesito ayuda con mi caso en LEXACASO.';
+const POLICY_VERSION='1.0.0';
+const CONSENT_TEXT='Autorizo el tratamiento de mis datos personales conforme al Aviso de Privacidad y la Política de Tratamiento de Datos Personales.';
 
 function App(){
  const [session,setSession]=useState(null),[mode,setMode]=useState('home'),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[name,setName]=useState(''),[msg,setMsg]=useState(''),[cases,setCases]=useState([]);
@@ -101,6 +103,8 @@ function Dashboard({session,cases,refresh}){
  const [caseNumber,setCaseNumber]=useState('');
  const [profileData,setProfileData]=useState(null);
  const [selectedCaseId,setSelectedCaseId]=useState(null);
+ const [isAdmin,setIsAdmin]=useState(false);
+ useEffect(()=>{supabase.rpc('is_admin').then(({data})=>setIsAdmin(data===true))},[session.user.id]);
 
  async function loadProfile(){
   const {data}=await supabase
@@ -119,13 +123,14 @@ function Dashboard({session,cases,refresh}){
  }
 
  if(selectedCaseId){
-  return <CaseDetail session={session} caseId={selectedCaseId} onBack={()=>{setSelectedCaseId(null);refresh()}}/>
+  return <CaseDetail session={session} caseId={selectedCaseId} isAdmin={isAdmin} onBack={()=>{setSelectedCaseId(null);refresh()}}/>
  }
 
  return <section className="dashboard">
   <div className="tabs">
    <button className={tab==='cases'?'tab active':'tab'} onClick={()=>{setTab('cases');setMsg('');setMsgType('');setCaseNumber('')}}><FolderOpen size={17}/> Mis casos</button>
    <button className={tab==='profile'?'tab active':'tab'} onClick={()=>{setTab('profile');setMsg('');setMsgType('');setCaseNumber('')}}><User size={17}/> Mi perfil</button>
+   {isAdmin&&<button className={tab==='admin'?'tab active':'tab'} onClick={()=>{setTab('admin');setMsg('');setMsgType('');setCaseNumber('')}}><Settings size={17}/> Administración</button>}
   </div>
   {tab==='cases'&&<>
    <div className="dashHead">
@@ -156,6 +161,7 @@ function Dashboard({session,cases,refresh}){
    </div>
   </>}
   {tab==='profile'&&<ProfileForm session={session}/>}
+  {tab==='admin'&&isAdmin&&<AdminPanel session={session} onOpenCase={setSelectedCaseId}/>}
  </section>
 }
 function CollapsibleSection({title,icon:Icon,defaultOpen,children,required}){
@@ -197,6 +203,11 @@ function CaseForm({session,profileData,onClose,onSaved}){
  const [termStartDate,setTermStartDate]=useState('');
  const [termEndDate,setTermEndDate]=useState('');
  const [formError,setFormError]=useState('');
+ const [consentAccepted,setConsentAccepted]=useState(false);
+
+ useEffect(()=>{
+  supabase.from('data_consents').select('id').eq('user_id',session.user.id).eq('policy_version',POLICY_VERSION).limit(1).maybeSingle().then(({data})=>setConsentAccepted(Boolean(data)));
+ },[session.user.id]);
 
  useEffect(()=>{
   if(hasDeadline==='yes'&&termDuration&&termDuration!=='Otro'&&termStartDate){
@@ -217,6 +228,7 @@ function CaseForm({session,profileData,onClose,onSaved}){
  async function createCase(e){
   e.preventDefault();
   setFormError('');
+  if(!consentAccepted){setFormError('Debes aceptar el Aviso de Privacidad y la Política de Tratamiento de Datos Personales para crear un caso.');return}
   if(!title.trim()){setFormError('El título del caso es obligatorio.');return}
   if(!legalCategory){setFormError('Debes seleccionar una categoría jurídica.');return}
   const catEntry=LEGAL_CATALOG.find(c=>c.name===legalCategory);
@@ -228,6 +240,11 @@ function CaseForm({session,profileData,onClose,onSaved}){
   setSaving(true);
   try {
    const {data:user}=await supabase.auth.getUser();
+   const {data:existingConsent}=await supabase.from('data_consents').select('id').eq('user_id',user.user.id).eq('policy_version',POLICY_VERSION).limit(1).maybeSingle();
+   if(!existingConsent){
+    const {error:consentError}=await supabase.from('data_consents').insert({user_id:user.user.id,policy_version:POLICY_VERSION,user_agent:navigator.userAgent});
+    if(consentError){setFormError('No se pudo registrar la autorización de datos. Intenta nuevamente.');setSaving(false);return}
+   }
    const caseData={
     user_id:user.user.id,
     title:title.trim(),
@@ -406,13 +423,14 @@ function CaseForm({session,profileData,onClose,onSaved}){
   <div className="formGroup">
    <label className="upload"><Upload size={20}/><span>{file?file.name:'Adjuntar documento (opcional)'}</span><input type="file" onChange={e=>setFile(e.target.files?.[0]||null)} disabled={saving}/></label>
   </div>
+  <label className="consentCheck"><input type="checkbox" checked={consentAccepted} onChange={e=>setConsentAccepted(e.target.checked)} disabled={saving}/><span>{CONSENT_TEXT} <strong>Versión {POLICY_VERSION}</strong></span></label>
   <div className="row">
    <button type="submit" className="primary" disabled={saving}>{saving?<><Loader2 size={18} className="spin"/> Guardando...</>:'Guardar caso'}</button>
    <button type="button" className="ghost" onClick={onClose} disabled={saving}>Cancelar</button>
   </div>
  </form>
 }
-function CaseDetail({session,caseId,onBack}){
+function CaseDetail({session,caseId,isAdmin=false,onBack}){
  const [loading,setLoading]=useState(true);
  const [caseData,setCaseData]=useState(null);
  const [documents,setDocuments]=useState([]);
@@ -438,16 +456,18 @@ function CaseDetail({session,caseId,onBack}){
  }
 
  async function downloadDoc(doc){
-  const {data,signedUrl,error}=await supabase.storage.from('case-documents').createSignedUrl(doc.storage_path,300);
+  const {signedUrl,error}=await supabase.storage.from('case-documents').createSignedUrl(doc.storage_path,300);
   if(error||!signedUrl){setMsg('No se pudo generar el enlace de descarga.');setMsgType('error');return}
+  await supabase.rpc('record_audit_event',{p_action:'document_downloaded',p_target_case_id:caseId,p_target_document_id:doc.id,p_details:{source:isAdmin?'admin':'client'}});
   window.open(signedUrl,'_blank');
  }
 
  async function deleteDoc(doc){
   if(!confirm('¿Eliminar este documento?')) return;
-  await supabase.storage.from('case-documents').remove([doc.storage_path]);
   const {error}=await supabase.from('case_documents').delete().eq('id',doc.id);
-  if(error){setMsg('No se pudo eliminar: '+error.message);setMsgType('error');return}
+  if(error){setMsg('No se pudo eliminar el documento.');setMsgType('error');return}
+  const {error:storageError}=await supabase.storage.from('case-documents').remove([doc.storage_path]);
+  if(storageError){setMsg('El registro se eliminó, pero el archivo físico no pudo retirarse.');setMsgType('error');return}
   setMsg('Documento eliminado.');setMsgType('success');
   loadAll();
  }
@@ -557,20 +577,22 @@ function CaseDetail({session,caseId,onBack}){
      <div className="docInfo"><b>{d.file_name}</b><span>{d.visible_to_client?'Visible':'Interno'}</span></div>
      <div className="docActions">
       <button className="ghost sm" onClick={()=>downloadDoc(d)}><Download size={16}/> Descargar</button>
-      <button className="ghost sm danger" onClick={()=>deleteDoc(d)}><Trash2 size={16}/></button>
+      {isAdmin&&<button className="ghost sm" onClick={async()=>{const {error}=await supabase.rpc('set_case_document_visibility',{p_document_id:d.id,p_visible_to_client:!d.visible_to_client,p_is_sensitive:d.is_sensitive});if(error){setMsg('No se pudo cambiar la visibilidad.');setMsgType('error')}else{setMsg('Visibilidad actualizada.');setMsgType('success');loadAll()}}}>{d.visible_to_client?'Marcar interno':'Hacer visible'}</button>}
+      {!isAdmin&&<button className="ghost sm danger" onClick={()=>deleteDoc(d)}><Trash2 size={16}/></button>}
      </div>
     </div>):<div className="empty"><FileText size={38}/><b>Sin documentos</b><span>Sube documentos relacionados con tu caso.</span></div>}
    </div>
   </div>}
 
-  {detailTab==='followup'&&<FollowupTab session={session} caseId={caseId} actions={actions} onRefresh={loadAll} statusLabel={statusLabel} downloadActionDoc={async(doc)=>{
+  {detailTab==='info'&&!isAdmin&&<AuthorizationPanel caseId={caseId}/>}
+  {detailTab==='followup'&&<FollowupTab session={session} caseId={caseId} isAdmin={isAdmin} actions={actions} onRefresh={loadAll} statusLabel={statusLabel} downloadActionDoc={async(doc)=>{
    const {signedUrl,error}=await supabase.storage.from('case-documents').createSignedUrl(doc.storage_path,300);
    if(error||!signedUrl){setMsg('No se pudo generar el enlace.');setMsgType('error');return}
    window.open(signedUrl,'_blank');
   }}/>}
  </section>
 }
-function FollowupTab({session,caseId,actions,onRefresh,statusLabel,downloadActionDoc}){
+function FollowupTab({session,caseId,isAdmin,actions,onRefresh,statusLabel,downloadActionDoc}){
  const [showForm,setShowForm]=useState(false);
  const [actionType,setActionType]=useState('');
  const [actionTitle,setActionTitle]=useState('');
@@ -581,6 +603,7 @@ function FollowupTab({session,caseId,actions,onRefresh,statusLabel,downloadActio
  const [savingAction,setSavingAction]=useState(false);
  const [actionDocs,setActionDocs]=useState({});
  const [formError,setFormError]=useState('');
+ const [actionVisible,setActionVisible]=useState(true);
 
  async function loadActionDocs(actionId){
   if(actionDocs[actionId]) return;
@@ -603,7 +626,7 @@ function FollowupTab({session,caseId,actions,onRefresh,statusLabel,downloadActio
    description:actionDesc.trim()||null,
    action_date:actionDate,
    status:actionStatus,
-   visible_to_client:true
+   visible_to_client:actionVisible
   }).select().single();
   if(error){setFormError('No se pudo guardar: '+error.message);setSavingAction(false);return}
   if(actionFile&&act){
@@ -613,12 +636,12 @@ function FollowupTab({session,caseId,actions,onRefresh,statusLabel,downloadActio
     await supabase.from('action_documents').insert({
      action_id:act.id,case_id:caseId,user_id:user.user.id,
      file_name:actionFile.name,storage_path:path,
-     content_type:actionFile.type||null,visible_to_client:true
+     content_type:actionFile.type||null,visible_to_client:actionVisible
     });
    }
   }
   setSavingAction(false);
-  setActionType('');setActionTitle('');setActionDesc('');setActionDate(new Date().toISOString().split('T')[0]);setActionStatus('pending');setActionFile(null);
+  setActionType('');setActionTitle('');setActionDesc('');setActionDate(new Date().toISOString().split('T')[0]);setActionStatus('pending');setActionFile(null);setActionVisible(true);
   setShowForm(false);
   onRefresh();
  }
@@ -626,7 +649,7 @@ function FollowupTab({session,caseId,actions,onRefresh,statusLabel,downloadActio
  return <div className="followupSection">
   <div className="dashHead">
    <div><h3>Seguimiento de mi caso</h3><p>Historial cronológico de gestiones realizadas.</p></div>
-   <button className="primary" onClick={()=>setShowForm(!showForm)}><Plus size={18}/> Nueva gestión</button>
+   {isAdmin&&<button className="primary" onClick={()=>setShowForm(!showForm)}><Plus size={18}/> Nueva gestión</button>}
   </div>
   {formError&&<div className="notice error"><AlertCircle size={18}/><span>{formError}</span></div>}
   {showForm&&<form className="caseForm extended" onSubmit={createAction}>
@@ -652,6 +675,7 @@ function FollowupTab({session,caseId,actions,onRefresh,statusLabel,downloadActio
    <div className="formGroup">
     <label className="upload"><Upload size={20}/><span>{actionFile?actionFile.name:'Adjuntar documento (opcional)'}</span><input type="file" onChange={e=>setActionFile(e.target.files?.[0]||null)} disabled={savingAction}/></label>
    </div>
+   {isAdmin&&<div className="formGroup"><label className="checkRow"><input type="checkbox" checked={actionVisible} onChange={e=>setActionVisible(e.target.checked)} disabled={savingAction}/><span>Visible para el cliente</span></label></div>}
    <div className="row">
     <button type="submit" className="primary" disabled={savingAction}>{savingAction?<><Loader2 size={18} className="spin"/> Guardando...</>:'Guardar gestión'}</button>
     <button type="button" className="ghost" onClick={()=>setShowForm(false)} disabled={savingAction}>Cancelar</button>
@@ -681,6 +705,80 @@ function FollowupTab({session,caseId,actions,onRefresh,statusLabel,downloadActio
     </div>
    )):<div className="empty"><Activity size={38}/><b>Sin gestiones registradas</b><span>Las gestiones aparecerán aquí cronológicamente.</span></div>}
   </div>
+ </div>
+}
+function AuthorizationPanel({caseId}){
+ const [admins,setAdmins]=useState([]);
+ const [authorizations,setAuthorizations]=useState([]);
+ const [selectedAdmin,setSelectedAdmin]=useState('');
+ const [message,setMessage]=useState('');
+ const [loading,setLoading]=useState(true);
+ async function load(){
+  setLoading(true);
+  const [{data:adminList},{data:current}]=await Promise.all([
+   supabase.rpc('list_admin_users'),
+   supabase.from('case_authorizations').select('id,user_id,authorized_at,revoked_at').eq('case_id',caseId)
+  ]);
+  setAdmins(adminList||[]);setAuthorizations(current||[]);setLoading(false);
+ }
+ useEffect(()=>{load()},[caseId]);
+ async function authorize(){
+  if(!selectedAdmin)return;
+  const {error}=await supabase.from('case_authorizations').insert({case_id:caseId,user_id:selectedAdmin});
+  if(error){setMessage('No se pudo autorizar el caso.');return}
+  setMessage('Administrador autorizado.');setSelectedAdmin('');load();
+ }
+ async function revoke(id){
+  const {error}=await supabase.from('case_authorizations').update({revoked_at:new Date().toISOString()}).eq('id',id);
+  if(error){setMessage('No se pudo revocar la autorización.');return}
+  setMessage('Autorización revocada.');load();
+ }
+ return <div className="detailCard authorizationCard">
+  <h3><LockKeyhole size={18}/> Autorización para revisión administrativa</h3>
+  <p className="detailFacts">Solo los administradores que autorices podrán consultar este caso, sus gestiones y documentos.</p>
+  {loading?<div className="profileLoading"><Loader2 size={18} className="spin"/> Cargando autorizaciones...</div>:<>
+   <div className="authorizationRow"><select value={selectedAdmin} onChange={e=>setSelectedAdmin(e.target.value)}><option value="">Selecciona un administrador...</option>{admins.filter(a=>!authorizations.some(x=>x.user_id===a.id&&!x.revoked_at)).map(a=><option key={a.id} value={a.id}>{a.full_name||a.email}</option>)}</select><button className="primary" onClick={authorize} disabled={!selectedAdmin}><CheckSquare size={16}/> Autorizar</button></div>
+   <div className="authorizationList">{authorizations.filter(a=>!a.revoked_at).map(a=>{const admin=admins.find(x=>x.id===a.user_id);return <div className="authorizationItem" key={a.id}><span>{admin?.full_name||admin?.email||'Administrador autorizado'}</span><button className="ghost sm danger" onClick={()=>revoke(a.id)}>Revocar</button></div>})}</div>
+  </>}
+  {message&&<div className="notice success">{message}</div>}
+ </div>
+}
+function AdminPanel({session,onOpenCase}){
+ const [cases,setCases]=useState([]);
+ const [profiles,setProfiles]=useState([]);
+ const [audit,setAudit]=useState([]);
+ const [filters,setFilters]=useState({search:'',category:'',department:'',status:'',fromDate:'',toDate:''});
+ const [loading,setLoading]=useState(true);
+ const [message,setMessage]=useState('');
+ async function load(){
+  setLoading(true);
+  const [{data:caseRows},{data:profileRows},{data:auditRows}]=await Promise.all([
+   supabase.from('cases').select('*').order('updated_at',{ascending:false}),
+   supabase.from('profiles').select('id,full_name,cedula,phone,address,email,role'),
+   supabase.from('audit_log').select('id,action,target_case_id,target_user_id,target_document_id,created_at,details').order('created_at',{ascending:false}).limit(100)
+  ]);
+  setCases(caseRows||[]);setProfiles(profileRows||[]);setAudit(auditRows||[]);setLoading(false);
+ }
+ useEffect(()=>{load()},[]);
+ const filtered=cases.filter(c=>{
+  const p=profiles.find(x=>x.id===c.user_id);
+  const search=filters.search.trim().toLowerCase();
+  const matchesSearch=!search||[c.title,c.case_number,p?.full_name,p?.cedula].filter(Boolean).some(value=>String(value).toLowerCase().includes(search));
+  return matchesSearch&&(!filters.category||c.legal_category===filters.category)&&(!filters.department||c.department===filters.department)&&(!filters.status||c.status===filters.status)&&(!filters.fromDate||c.created_at>=filters.fromDate)&&(!filters.toDate||c.created_at<=`${filters.toDate}T23:59:59.999Z`);
+ });
+ function setFilter(name,value){setFilters(prev=>({...prev,[name]:value}))}
+ async function exportExcel(){
+  setMessage('');
+  const {data,error}=await supabase.functions.invoke('export-cases-excel',{body:filters});
+  if(error||!(data instanceof Blob)){setMessage('No se pudo generar la exportación.');return}
+  const url=URL.createObjectURL(data);const link=document.createElement('a');link.href=url;link.download='lexacaso-casos.xlsx';link.click();URL.revokeObjectURL(url);setMessage('Exportación descargada.');
+ }
+ return <div className="adminPanel">
+  <div className="dashHead"><div><div className="badge"><UserCog size={14}/> Acceso autorizado</div><h2>Panel de administración</h2><p>Solo muestra casos con autorización vigente para esta cuenta.</p></div><button className="primary" onClick={exportExcel}><Download size={17}/> Exportar Excel</button></div>
+  {message&&<div className="notice success"><CheckCircle2 size={18}/>{message}</div>}
+  <div className="adminStats"><div><b>{profiles.length}</b><span>Usuarios visibles</span></div><div><b>{filtered.length}</b><span>Casos autorizados</span></div><div><b>{audit.length}</b><span>Eventos recientes</span></div></div>
+  <div className="adminFilters"><div className="searchField"><Search size={17}/><input placeholder="Buscar por nombre, cédula, radicado o caso" value={filters.search} onChange={e=>setFilter('search',e.target.value)}/></div><select value={filters.category} onChange={e=>setFilter('category',e.target.value)}><option value="">Todas las categorías</option>{LEGAL_CATALOG.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select><select value={filters.department} onChange={e=>setFilter('department',e.target.value)}><option value="">Todos los departamentos</option>{DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select><select value={filters.status} onChange={e=>setFilter('status',e.target.value)}><option value="">Todos los estados</option><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select><input type="date" value={filters.fromDate} onChange={e=>setFilter('fromDate',e.target.value)}/><input type="date" value={filters.toDate} onChange={e=>setFilter('toDate',e.target.value)}/></div>
+  <div className="adminSections"><section className="adminCard"><h3><FolderOpen size={18}/> Casos autorizados</h3>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando...</div>:filtered.length?filtered.map(c=>{const p=profiles.find(x=>x.id===c.user_id);return <button className="adminCaseRow" key={c.id} onClick={()=>onOpenCase(c.id)}><div><b>{c.title}</b><span>{p?.full_name||'Usuario'} · {c.legal_category||'Sin categoría'} · {c.case_number||'Sin radicado'}</span></div><ArrowRight size={17}/></button>}):<div className="empty"><LockKeyhole size={32}/><b>No hay casos autorizados</b><span>Los casos aparecerán cuando sus propietarios autoricen la revisión.</span></div>}</section><section className="adminCard"><h3><Activity size={18}/> Auditoría reciente</h3>{audit.length?audit.map(item=><div className="auditRow" key={item.id}><b>{item.action}</b><span>{new Date(item.created_at).toLocaleString('es-CO')}</span></div>):<div className="empty"><Activity size={32}/><b>Sin eventos</b></div>}</section></div>
  </div>
 }
 function ProfileForm({session}){
