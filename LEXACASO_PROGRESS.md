@@ -10,6 +10,7 @@
 
 ### BLOQUE 1 — Etapas 4b, 5, 6, 7 + Módulo de Seguimiento — COMPLETADO
 ### BLOQUE 2A — Seguridad y modelo administrativo — COMPLETADO
+### BLOQUE 2B — Panel administrativo, visibilidad, autorizaciones, auditoría y notificaciones — COMPLETADO
 
 ---
 
@@ -18,7 +19,7 @@
 | Archivo | Descripción |
 |---|---|
 | `src/main.jsx` | Reescrito completo: catálogo jurídico con 14 categorías + subcategorías encadenadas, sección de términos y vencimientos, vista de detalle de caso (CaseDetail) con 3 pestañas, módulo de seguimiento (FollowupTab) con timeline, botón de WhatsApp, descarga de documentos mediante URL firmada |
-| `src/styles.css` | Añadidos estilos para: vista de detalle, tarjetas de información, grid de detalle, lista de documentos, timeline de seguimiento, badges de estado, botón flotante de WhatsApp con tooltip, responsive mobile |
+| `src/styles.css` | Añadidos estilos para: vista de detalle, tarjetas de información, grid de detalle, lista de documentos, timeline de seguimiento, badges de estado, botón flotante de WhatsApp con tooltip, panel administrativo, navegación de auditoría, identidad visual LEXACASO y responsive mobile |
 | `supabase/functions/export-cases-excel/index.ts` | Edge Function para exportación Excel de base general de casos (admin autorizado) |
 | `supabase/config.toml` | Configuración de Edge Function export-cases-excel |
 
@@ -295,10 +296,14 @@ Build exitoso, sin warnings ni errores.
 
 ## FUNCIONALIDADES PENDIENTES
 
-### BLOQUE 2B (NO EJECUTADO)
-- Etapa 9: Panel de gestión admin en frontend (UI para administradores)
-- Etapa 10: UI de exportación Excel en panel admin
-- Etapa 13: Notificaciones in-app + correo al cliente
+### BLOQUE 2B — COMPLETADO
+- Etapa 9: Panel administrativo con casos autorizados, filtros, clientes visibles y navegación interna
+- Etapa 10: Exportación Excel desde el panel administrativo
+- Etapa 13: Centro de notificaciones in-app y avisos server-side
+- Gestión de autorizaciones visible para clientes y consulta de autorizaciones activas para administradores
+- Controles administrativos de visibilidad y sensibilidad de documentos
+- Controles administrativos de visibilidad de gestiones y sus documentos
+- Visor detallado de auditoría restringido por el rol administrativo
 
 ### BLOQUE 3 (NO EJECUTADO)
 - Etapa 11: Análisis jurídico (resumen, cronología, problemas, fuentes, estrategias, segunda revisión)
@@ -309,10 +314,10 @@ Build exitoso, sin warnings ni errores.
 
 ## PRÓXIMO BLOQUE RECOMENDADO
 
-**BLOQUE 2B** — Panel de gestión admin (frontend), UI de exportación Excel, notificaciones in-app y correo.
+**BLOQUE 3** — Análisis jurídico, exportación Word/PDF e identidad visual avanzada.
 
 ---
 
 ## CONFIRMACIÓN
 
-**BLOQUE 1 COMPLETADO. BLOQUE 2A COMPLETADO. BLOQUE 2B NO EJECUTADO.**
+**BLOQUE 1 COMPLETADO. BLOQUE 2A COMPLETADO. BLOQUE 2B COMPLETADO.**

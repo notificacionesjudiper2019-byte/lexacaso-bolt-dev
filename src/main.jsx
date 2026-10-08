@@ -78,7 +78,7 @@ function App(){
  }
  async function logout(){await supabase.auth.signOut();setMode('home')}
  return <div className="app">
-  <header><div className="brand"><div className="logo"><Scale size={25}/></div><div><b>Expón tu caso</b><span>Orientación e información jurídica</span></div></div>{session?<button className="ghost" onClick={logout}><LogOut size={17}/> Salir</button>:<button className="ghost" onClick={()=>setMode('login')}><LogIn size={17}/> Ingresar</button>}</header>
+  <header><div className="brand"><div className="logo"><img src="/casos-privados/lexacaso.jpeg" alt="LEXACASO"/></div><div><b>LEXACASO</b><span>Tu caso, en buenas manos</span></div></div>{session?<button className="ghost" onClick={logout}><LogOut size={17}/> Salir</button>:<button className="ghost" onClick={()=>setMode('login')}><LogIn size={17}/> Ingresar</button>}</header>
   <main>
    {!session&&mode==='home'&&<section className="hero"><div className="badge"><ShieldCheck size={16}/> Espacio privado y organizado</div><h1>Expón tu caso.<br/><em>Ordena la información.</em></h1><p>Presenta hechos y documentos para organizar tu caso, generar resúmenes, cronologías y líneas de análisis. La plataforma ofrece información y orientación; no sustituye la asesoría o representación profesional.</p><button className="primary" onClick={()=>setMode('signup')}>Expón tu caso <ArrowRight size={18}/></button><div className="cards"><div><Upload/><b>Documentos</b><span>Adjunta archivos relevantes de forma privada.</span></div><div><FileText/><b>Análisis</b><span>Resumen, hechos, problemas y fuentes para revisión.</span></div><div><ShieldCheck/><b>Privacidad</b><span>Tu información queda separada por cuenta.</span></div></div></section>}
    {!session&&(mode==='login'||mode==='signup')&&<section className="auth"><button className="back" onClick={()=>setMode('home')}>← Volver</button><h2>{mode==='login'?'Ingresar':'Crear cuenta'}</h2><p>Tu cuenta permite mantener tus casos separados y privados.</p><form onSubmit={auth}>{mode==='signup'&&<input placeholder="Nombre" value={name} onChange={e=>setName(e.target.value)} required/>}<input type="email" placeholder="Correo electrónico" value={email} onChange={e=>setEmail(e.target.value)} required/><input type="password" placeholder="Contraseña" value={password} onChange={e=>setPassword(e.target.value)} minLength="8" required/><button className="primary">{mode==='login'?'Ingresar':'Crear cuenta'}</button></form>{msg&&<div className="notice">{msg}</div>}<button className="link" onClick={()=>setMode(mode==='login'?'signup':'login')}>{mode==='login'?'Crear una cuenta':'Ya tengo una cuenta'}</button></section>}
@@ -821,41 +821,59 @@ function NotificationsPanel({session,onOpenCase,onRead}){
  </div>
 }
 function AdminPanel({session,onOpenCase}){
+ const [section,setSection]=useState('cases');
  const [cases,setCases]=useState([]);
  const [profiles,setProfiles]=useState([]);
  const [audit,setAudit]=useState([]);
+ const [authorizations,setAuthorizations]=useState([]);
  const [filters,setFilters]=useState({search:'',category:'',department:'',status:'',fromDate:'',toDate:''});
  const [loading,setLoading]=useState(true);
  const [message,setMessage]=useState('');
+ const [error,setError]=useState('');
  async function load(){
-  setLoading(true);
-  const [{data:caseRows},{data:profileRows},{data:auditRows}]=await Promise.all([
+  setLoading(true);setError('');
+  const [{data:caseRows,error:caseError},{data:profileRows,error:profileError},{data:auditRows,error:auditError},{data:authorizationRows,error:authorizationError}]=await Promise.all([
    supabase.from('cases').select('*').order('updated_at',{ascending:false}),
    supabase.from('profiles').select('id,full_name,cedula,phone,address,email,role'),
-   supabase.from('audit_log').select('id,action,target_case_id,target_user_id,target_document_id,created_at,details').order('created_at',{ascending:false}).limit(100)
+   supabase.from('audit_log').select('id,action,target_case_id,target_user_id,target_document_id,created_at,details').order('created_at',{ascending:false}).limit(100),
+   supabase.from('case_authorizations').select('id,case_id,authorized_at,revoked_at').eq('user_id',session.user.id).order('authorized_at',{ascending:false})
   ]);
-  setCases(caseRows||[]);setProfiles(profileRows||[]);setAudit(auditRows||[]);setLoading(false);
+  const firstError=caseError||profileError||auditError||authorizationError;
+  if(firstError)setError('No se pudo cargar toda la información administrativa.');
+  setCases(caseRows||[]);setProfiles(profileRows||[]);setAudit(auditRows||[]);setAuthorizations(authorizationRows||[]);setLoading(false);
  }
- useEffect(()=>{load()},[]);
+ useEffect(()=>{load()},[session.user.id]);
  const filtered=cases.filter(c=>{
   const p=profiles.find(x=>x.id===c.user_id);
   const search=filters.search.trim().toLowerCase();
   const matchesSearch=!search||[c.title,c.case_number,p?.full_name,p?.cedula].filter(Boolean).some(value=>String(value).toLowerCase().includes(search));
   return matchesSearch&&(!filters.category||c.legal_category===filters.category)&&(!filters.department||c.department===filters.department)&&(!filters.status||c.status===filters.status)&&(!filters.fromDate||c.created_at>=filters.fromDate)&&(!filters.toDate||c.created_at<=`${filters.toDate}T23:59:59.999Z`);
  });
+ const activeAuthorizations=authorizations.filter(item=>!item.revoked_at);
  function setFilter(name,value){setFilters(prev=>({...prev,[name]:value}))}
  async function exportExcel(){
   setMessage('');
-  const {data,error}=await supabase.functions.invoke('export-cases-excel',{body:filters});
-  if(error||!(data instanceof Blob)){setMessage('No se pudo generar la exportación.');return}
+  const {data,error:exportError}=await supabase.functions.invoke('export-cases-excel',{body:filters});
+  if(exportError||!(data instanceof Blob)){setMessage('No se pudo generar la exportación.');return}
   const url=URL.createObjectURL(data);const link=document.createElement('a');link.href=url;link.download='lexacaso-casos.xlsx';link.click();URL.revokeObjectURL(url);setMessage('Exportación descargada.');
  }
+ function caseForAuthorization(item){return cases.find(itemCase=>itemCase.id===item.case_id)}
  return <div className="adminPanel">
-  <div className="dashHead"><div><div className="badge"><UserCog size={14}/> Acceso autorizado</div><h2>Panel de administración</h2><p>Solo muestra casos con autorización vigente para esta cuenta.</p></div><button className="primary" onClick={exportExcel}><Download size={17}/> Exportar Excel</button></div>
-  {message&&<div className="notice success"><CheckCircle2 size={18}/>{message}</div>}
-  <div className="adminStats"><div><b>{profiles.length}</b><span>Usuarios visibles</span></div><div><b>{filtered.length}</b><span>Casos autorizados</span></div><div><b>{audit.length}</b><span>Eventos recientes</span></div></div>
-  <div className="adminFilters"><div className="searchField"><Search size={17}/><input placeholder="Buscar por nombre, cédula, radicado o caso" value={filters.search} onChange={e=>setFilter('search',e.target.value)}/></div><select value={filters.category} onChange={e=>setFilter('category',e.target.value)}><option value="">Todas las categorías</option>{LEGAL_CATALOG.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select><select value={filters.department} onChange={e=>setFilter('department',e.target.value)}><option value="">Todos los departamentos</option>{DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select><select value={filters.status} onChange={e=>setFilter('status',e.target.value)}><option value="">Todos los estados</option><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select><input type="date" value={filters.fromDate} onChange={e=>setFilter('fromDate',e.target.value)}/><input type="date" value={filters.toDate} onChange={e=>setFilter('toDate',e.target.value)}/></div>
-  <div className="adminSections"><section className="adminCard"><h3><FolderOpen size={18}/> Casos autorizados</h3>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando...</div>:filtered.length?filtered.map(c=>{const p=profiles.find(x=>x.id===c.user_id);return <button className="adminCaseRow" key={c.id} onClick={()=>onOpenCase(c.id)}><div><b>{c.title}</b><span>{p?.full_name||'Usuario'} · {c.legal_category||'Sin categoría'} · {c.case_number||'Sin radicado'}</span></div><ArrowRight size={17}/></button>}):<div className="empty"><LockKeyhole size={32}/><b>No hay casos autorizados</b><span>Los casos aparecerán cuando sus propietarios autoricen la revisión.</span></div>}</section><section className="adminCard"><h3><Activity size={18}/> Auditoría reciente</h3>{audit.length?audit.map(item=><div className="auditRow" key={item.id}><b>{item.action}</b><span>{new Date(item.created_at).toLocaleString('es-CO')}</span></div>):<div className="empty"><Activity size={32}/><b>Sin eventos</b></div>}</section></div>
+  <div className="dashHead"><div><div className="badge"><UserCog size={14}/> Acceso autorizado</div><h2>Panel de administración</h2><p>Solo muestra información de casos con autorización vigente para esta cuenta.</p></div><button className="primary" onClick={exportExcel}><Download size={17}/> Exportar Excel</button></div>
+  {error&&<div className="notice error"><AlertCircle size={18}/><span>{error}</span></div>}
+  {message&&<div className="notice success"><CheckCircle2 size={18}/><span>{message}</span></div>}
+  <nav className="adminNav" aria-label="Secciones administrativas">
+   <button className={section==='cases'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('cases')}><FolderOpen size={17}/> Casos</button>
+   <button className={section==='authorizations'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('authorizations')}><LockKeyhole size={17}/> Autorizaciones <span>{activeAuthorizations.length}</span></button>
+   <button className={section==='audit'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('audit')}><Activity size={17}/> Auditoría <span>{audit.length}</span></button>
+  </nav>
+  {section==='cases'&&<>
+   <div className="adminStats"><div><b>{profiles.length}</b><span>Usuarios visibles</span></div><div><b>{filtered.length}</b><span>Casos autorizados</span></div><div><b>{activeAuthorizations.length}</b><span>Autorizaciones activas</span></div></div>
+   <div className="adminFilters"><div className="searchField"><Search size={17}/><input placeholder="Buscar por nombre, cédula, radicado o caso" value={filters.search} onChange={e=>setFilter('search',e.target.value)}/></div><select value={filters.category} onChange={e=>setFilter('category',e.target.value)}><option value="">Todas las categorías</option>{LEGAL_CATALOG.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select><select value={filters.department} onChange={e=>setFilter('department',e.target.value)}><option value="">Todos los departamentos</option>{DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select><select value={filters.status} onChange={e=>setFilter('status',e.target.value)}><option value="">Todos los estados</option><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select><input type="date" value={filters.fromDate} onChange={e=>setFilter('fromDate',e.target.value)}/><input type="date" value={filters.toDate} onChange={e=>setFilter('toDate',e.target.value)}/></div>
+   <section className="adminCard"><div className="adminCardHeader"><h3><FolderOpen size={18}/> Casos autorizados</h3><span className="accessNote"><ShieldCheck size={14}/> Acceso limitado por autorización</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando...</div>:filtered.length?filtered.map(c=>{const p=profiles.find(x=>x.id===c.user_id);return <button className="adminCaseRow" key={c.id} onClick={()=>onOpenCase(c.id)}><div><b>{c.title}</b><span>{p?.full_name||'Usuario'} · {c.legal_category||'Sin categoría'} · {c.case_number||'Sin radicado'}</span></div><span className="caseStatus">{c.status==='in_progress'?'En trámite':c.status==='closed'?'Finalizado':'Recibido'}</span><ArrowRight size={17}/></button>}):<div className="empty"><LockKeyhole size={32}/><b>No hay casos autorizados</b><span>Los casos aparecerán cuando sus propietarios autoricen la revisión.</span></div>}</section>
+  </>}
+  {section==='authorizations'&&<section className="adminCard adminWideCard"><div className="adminCardHeader"><div><h3><LockKeyhole size={18}/> Mis autorizaciones</h3><p className="adminCardHint">Estos son los casos que sus propietarios te han permitido consultar.</p></div><span className="securePill"><ShieldCheck size={14}/> RLS activo</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando autorizaciones...</div>:activeAuthorizations.length? <div className="authorizationAdminList">{activeAuthorizations.map(item=>{const currentCase=caseForAuthorization(item);const owner=currentCase&&profiles.find(profile=>profile.id===currentCase.user_id);return <div className="authorizationAdminItem" key={item.id}><div><b>{currentCase?.title||'Caso autorizado'}</b><span>{owner?.full_name||'Propietario'}</span><small>Autorizado el {new Date(item.authorized_at).toLocaleDateString('es-CO')}</small></div>{currentCase&&<button className="ghost sm" onClick={()=>onOpenCase(currentCase.id)}><Eye size={15}/> Abrir caso</button>}</div>})}</div>:<div className="empty"><LockKeyhole size={32}/><b>No tienes autorizaciones activas</b><span>Un cliente debe autorizarte desde la sección de su caso.</span></div>}</section>}
+  {section==='audit'&&<section className="adminCard adminWideCard"><div className="adminCardHeader"><div><h3><Activity size={18}/> Registro de auditoría</h3><p className="adminCardHint">Eventos registrados para revisar accesos y cambios administrativos.</p></div><span className="securePill"><ShieldCheck size={14}/> Solo administradores</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando auditoría...</div>:audit.length?<div className="auditTable">{audit.map(item=><div className="auditDetailRow" key={item.id}><div><b>{item.action}</b><span>{item.target_case_id?'Caso relacionado: '+item.target_case_id:'Evento general'}</span></div><time>{new Date(item.created_at).toLocaleString('es-CO')}</time></div>)}</div>:<div className="empty"><Activity size={32}/><b>Sin eventos</b><span>Los eventos administrativos aparecerán aquí.</span></div>}</section>}
  </div>
 }
 function ProfileForm({session}){

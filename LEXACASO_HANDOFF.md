@@ -1,7 +1,7 @@
 # LEXACASO — HANDOFF DOCUMENT
 
 **Fecha:** 2026-10-08
-**Bloque completado:** 2A — Seguridad y modelo administrativo
+**Bloque completado:** 2B — Interfaz administrativa, autorizaciones, auditoría y notificaciones
 **Proyecto:** casos-privados (LEXACASO)
 **Entorno:** Bolt + Supabase + React + Vite
 
@@ -20,13 +20,15 @@ El Bloque 2A implementa el modelo administrativo completo: roles de usuario, aut
 
 ## ESTADO DE LA BASE DE DATOS
 
-### Migraciones aplicadas (14 total)
+### Migraciones aplicadas (16 total)
 - 001-006: Esquema base (cases, case_documents, profiles, storage, triggers)
 - 007-010: Bloque 1 (términos, visible_to_client, gestiones, documentos de gestiones)
 - 011: Roles, autorizaciones, auditoría, consentimiento, column-level grants, políticas admin/cliente
 - 012: Controles administrativos de documentos (set_case_document_visibility)
 - 013: Corrección de alcance de perfiles admin
 - 014: Endurecimiento de seguridad (revocación anon, TRUNCATE, columnas protegidas, storage)
+- 015: Notificaciones in-app con RLS y triggers server-side
+- 016: Notificación al cliente cuando un documento se vuelve visible
 
 ### Tablas (8)
 | Tabla | RLS | Propósito |
@@ -147,21 +149,22 @@ Build exitoso. Sin warnings ni errores.
 
 ---
 
-## LO QUE FALTA (BLOQUE 2B)
+## BLOQUE 2B COMPLETADO
 
-El backend de seguridad está completo. Falta el frontend:
+La interfaz administrativa quedó integrada con el modelo de seguridad existente:
 
-1. **Panel admin UI** — interfaz donde el admin ve casos autorizados, gestiona gestiones, cambia visibilidad de documentos
-2. **UI de autorización** — pantalla donde el cliente selecciona qué admin autoriza para su caso
-3. **UI de exportación Excel** — botón en panel admin que llama la Edge Function
-4. **Notificaciones in-app** — tabla + UI de notificaciones
-5. **Correo al cliente** — notificación por email cuando hay nueva gestión visible
+1. **Panel de casos autorizados** — búsqueda, filtros por categoría, departamento, estado y fechas, además de exportación Excel
+2. **Autorizaciones** — el cliente autoriza o revoca administradores desde su caso; cada administrador consulta únicamente sus autorizaciones activas
+3. **Visibilidad** — el administrador puede alternar visibilidad y sensibilidad de documentos, y visibilidad de gestiones y sus documentos
+4. **Auditoría** — visor administrativo de eventos, accesos y cambios registrados
+5. **Notificaciones** — centro in-app para el cliente con lectura individual o masiva y acceso directo al caso relacionado
+6. **Identidad visual** — navegación, tarjetas, estados y controles alineados con azul jurídico, dorado, marfil y azul claro de LEXACASO
 
 ## LO QUE FALTA (BLOQUE 3)
 
 1. **Análisis jurídico** — resumen, cronología, problemas, fuentes, estrategias
 2. **Exportación Word/PDF** — documentos formateados
-3. **Identidad visual LEXACASO** — logo, colores, pulido final
+3. **Identidad visual avanzada** — refinamiento final de logo, páginas públicas y piezas de comunicación
 
 ---
 
