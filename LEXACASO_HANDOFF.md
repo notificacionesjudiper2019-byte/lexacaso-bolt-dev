@@ -160,11 +160,12 @@ La interfaz administrativa quedó integrada con el modelo de seguridad existente
 5. **Notificaciones** — centro in-app para el cliente con lectura individual o masiva y acceso directo al caso relacionado
 6. **Identidad visual** — navegación, tarjetas, estados y controles alineados con azul jurídico, dorado, marfil y azul claro de LEXACASO
 
-## LO QUE FALTA (BLOQUE 3)
+## LO QUE FALTA
 
-1. **Análisis jurídico** — resumen, cronología, problemas, fuentes, estrategias
-2. **Exportación Word/PDF** — documentos formateados
-3. **Identidad visual avanzada** — refinamiento final de logo, páginas públicas y piezas de comunicación
+**Único pendiente:** Asignar el primer administrador. No hay usuarios registrados todavía. Tras el primer registro, ejecutar:
+`UPDATE profiles SET role = 'admin' WHERE id = '<uuid>';`
+
+**LEXACASO está listo para publicación.** NO se ha publicado producción.
 
 ---
 

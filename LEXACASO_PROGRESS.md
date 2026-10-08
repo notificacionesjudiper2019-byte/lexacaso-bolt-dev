@@ -305,19 +305,30 @@ Build exitoso, sin warnings ni errores.
 - Controles administrativos de visibilidad de gestiones y sus documentos
 - Visor detallado de auditoría restringido por el rol administrativo
 
-### BLOQUE 3 (NO EJECUTADO)
-- Etapa 11: Análisis jurídico (resumen, cronología, problemas, fuentes, estrategias, segunda revisión)
-- Etapa 12: Exportación Word/PDF
-- Etapa 14: Identidad visual LEXACASO + pulido final
+### BLOQUE FINAL — COMPLETADO
+- Análisis jurídico automatizado de 13 elementos con lenguaje preliminar
+- Segunda revisión independiente (solo admin autorizado, no sobrescribe análisis)
+- Informe integrado combinando todos los datos del caso
+- Exportación Word (.doc con identidad LEXACASO y todas las secciones)
+- Exportación PDF (jsPDF dinámico, portada navy/dorado, secciones profesionales)
+- Pestaña "Análisis" en CaseDetail con 3 sub-pestañas
+- Análisis respeta visible_to_client — solo usa documentos y gestiones visibles
+- RLS: case_analyses (propietario + admin autorizado), case_analysis_reviews (SOLO admin)
+- jsPDF importado dinámicamente (code-splitting, 0 vulnerabilidades)
+- Limpieza de políticas duplicadas (migración 018)
+
+### ADMINISTRADOR
+- No hay usuarios registrados todavía
+- FALTA UUID DEL PRIMER ADMINISTRADOR — asignar tras registro con: UPDATE profiles SET role='admin' WHERE id='<uuid>'
 
 ---
 
 ## PRÓXIMO BLOQUE RECOMENDADO
 
-**BLOQUE 3** — Análisis jurídico, exportación Word/PDF e identidad visual avanzada.
+**NINGUNO** — LEXACASO está listo para publicación. Pendiente: asignar primer admin.
 
 ---
 
 ## CONFIRMACIÓN
 
-**BLOQUE 1 COMPLETADO. BLOQUE 2A COMPLETADO. BLOQUE 2B COMPLETADO.**
+**BLOQUE 1 COMPLETADO. BLOQUE 2A COMPLETADO. BLOQUE 2B COMPLETADO. BLOQUE FINAL COMPLETADO.**
