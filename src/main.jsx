@@ -1,7 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {createClient} from '@supabase/supabase-js';
-import { Scale, ShieldCheck, Upload, FolderOpen, ArrowRight, LogIn, LogOut, CirclePlus as PlusCircle, Clock3, FileText, Loader as Loader2, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, User, ChevronDown, ChevronRight, MapPin, Gavel, FileStack, Users, ArrowLeft, Download, Trash2, Calendar, MessageCircle, Plus, Activity, Settings, Search, LockKeyhole, UserCog, SquareCheck as CheckSquare, Bell, CreditCard as Edit3, EyeOff, Eye, Sparkles, FileCheck, RefreshCw, TriangleAlert as AlertTriangle } from 'lucide-react';
+import { Scale, ShieldCheck, Upload, FolderOpen, ArrowRight, LogIn, LogOut, CirclePlus as PlusCircle, Clock3, FileText, Loader as Loader2, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, User, ChevronDown, ChevronRight, MapPin, Gavel, FileStack, Users, ArrowLeft, Download, Trash2, Calendar, MessageCircle, Plus, Activity, Settings, Search, LockKeyhole, UserCog, SquareCheck as CheckSquare, Bell, CreditCard as Edit3, EyeOff, Eye, Sparkles, FileCheck, RefreshCw, TriangleAlert as AlertTriangle, Mail, Gavel as CourtIcon, Link as LinkIcon, Archive, Send } from 'lucide-react';
 import {buildInitialAnalysis,buildSecondReview,buildIntegratedReport} from './analysis';
 import {downloadWord,downloadPdf} from './analysisExports';
 import './styles.css';
@@ -851,9 +851,11 @@ function AuthorizationPanel({caseId}){
 function NotificationsPanel({session,onOpenCase,onRead}){
  const [notifications,setNotifications]=useState([]);
  const [loading,setLoading]=useState(true);
+ const [statusFilter,setStatusFilter]=useState('all');
+ const [searchQuery,setSearchQuery]=useState('');
  async function load(){
   setLoading(true);
-  const {data}=await supabase.from('notifications').select('*').eq('user_id',session.user.id).order('created_at',{ascending:false}).limit(50);
+  const {data}=await supabase.from('notifications').select('*').eq('user_id',session.user.id).order('created_at',{ascending:false}).limit(100);
   setNotifications(data||[]);
   setLoading(false);
  }
@@ -866,10 +868,29 @@ function NotificationsPanel({session,onOpenCase,onRead}){
   const {error}=await supabase.from('notifications').update({is_read:true}).eq('user_id',session.user.id).eq('is_read',false);
   if(!error){load();onRead()}
  }
- const notifIcons={new_action:<Activity size={18}/>,document_visible:<FileText size={18}/>,case_update:<Bell size={18}/>};
+ async function toggleArchive(n){
+  const {error}=await supabase.from('notifications').update({archived:!n.archived}).eq('id',n.id);
+  if(!error){load()}
+ }
+ const filtered=notifications.filter(n=>{
+  const matchesStatus=statusFilter==='all'?true:statusFilter==='unread'?!n.is_read&&!n.archived:statusFilter==='read'?n.is_read&&!n.archived:statusFilter==='archived'?n.archived:false;
+  const q=searchQuery.trim().toLowerCase();
+  const matchesSearch=!q||[n.title,n.message,n.case_number,n.court].filter(Boolean).some(v=>String(v).toLowerCase().includes(q));
+  return matchesStatus&&matchesSearch;
+ });
+ const notifIcons={new_action:<Activity size={18}/>,document_visible:<FileText size={18}/>,case_update:<Bell size={18}/>,judicial:<CourtIcon size={18}/>,admin:<UserCog size={18}/>};
  return <div className="profileSection">
   <div className="dashHead"><div><div className="badge"><Bell size={14}/> Actualizaciones</div><h2>Notificaciones</h2><p>Te avisamos cuando haya novedades en tus casos.</p></div>{notifications.some(n=>!n.is_read)&&<button className="ghost" onClick={markAllRead}><CheckSquare size={16}/> Marcar todo como leído</button>}</div>
-  {loading?<div className="profileLoading"><Loader2 size={28} className="spin"/><span>Cargando notificaciones...</span></div>:notifications.length?<div className="notifList">{notifications.map(n=><div className={n.is_read?'notifItem read':'notifItem'} key={n.id}>{notifIcons[n.type]||<Bell size={18}/>}<div className="notifContent"><b>{n.title}</b><span>{n.message}</span><small>{new Date(n.created_at).toLocaleString('es-CO')}</small></div>{!n.is_read&&<button className="ghost sm" onClick={()=>markAsRead(n)}>Marcar leída</button>}<button className="ghost sm" onClick={()=>onOpenCase(n.case_id)}>Ver caso</button></div>)}</div>:<div className="empty"><Bell size={38}/><b>Sin notificaciones</b><span>Las actualizaciones de tus casos aparecerán aquí.</span></div>}
+  <div className="notifFilters">
+   <div className="searchField"><Search size={17}/><input placeholder="Buscar por expediente o juzgado..." value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}/></div>
+   <div className="radioRow">
+    <label className={statusFilter==='all'?'radioOpt active':'radioOpt'}><input type="radio" name="statusFilter" value="all" checked={statusFilter==='all'} onChange={()=>setStatusFilter('all')}/>Todas</label>
+    <label className={statusFilter==='unread'?'radioOpt active':'radioOpt'}><input type="radio" name="statusFilter" value="unread" checked={statusFilter==='unread'} onChange={()=>setStatusFilter('unread')}/>Pendientes</label>
+    <label className={statusFilter==='read'?'radioOpt active':'radioOpt'}><input type="radio" name="statusFilter" value="read" checked={statusFilter==='read'} onChange={()=>setStatusFilter('read')}/>Leídas</label>
+    <label className={statusFilter==='archived'?'radioOpt active':'radioOpt'}><input type="radio" name="statusFilter" value="archived" checked={statusFilter==='archived'} onChange={()=>setStatusFilter('archived')}/>Archivadas</label>
+  </div>
+  </div>
+  {loading?<div className="profileLoading"><Loader2 size={28} className="spin"/><span>Cargando notificaciones...</span></div>:filtered.length?<div className="notifList">{filtered.map(n=><div className={n.is_read?'notifItem read':'notifItem'} key={n.id}>{notifIcons[n.type]||<Bell size={18}/>}<div className="notifContent"><b>{n.title}</b><span>{n.message}</span>{n.case_number&&<small>Expediente: {n.case_number}</small>}{n.court&&<small>Juzgado: {n.court}</small>}{n.filing_date&&<small>Radicado: {new Date(n.filing_date+'T00:00:00').toLocaleDateString('es-CO')}</small>}{n.attachment_url&&<a href={n.attachment_url} target="_blank" rel="noopener noreferrer" className="ghost sm" style={{display:'inline-flex',marginTop:'4px'}}><LinkIcon size={14}/> Ver archivo</a>}<small>{new Date(n.created_at).toLocaleString('es-CO')}</small></div><div className="timelineActions">{!n.is_read&&<button className="ghost sm" onClick={()=>markAsRead(n)}><CheckSquare size={14}/> Marcar leída</button>}{n.case_id&&<button className="ghost sm" onClick={()=>onOpenCase(n.case_id)}>Ver caso</button>}<button className="ghost sm" onClick={()=>toggleArchive(n)}><Archive size={14}/> {n.archived?'Desarchivar':'Archivar'}</button></div></div>)}</div>:<div className="empty"><Bell size={38}/><b>Sin notificaciones</b><span>{searchQuery||statusFilter!=='all'?'No hay resultados con los filtros actuales.':'Las notificaciones judiciales y de tus casos aparecerán aquí.'}</span></div>}
  </div>
 }
 function AdminPanel({session,onOpenCase}){
@@ -878,21 +899,29 @@ function AdminPanel({session,onOpenCase}){
  const [profiles,setProfiles]=useState([]);
  const [audit,setAudit]=useState([]);
  const [authorizations,setAuthorizations]=useState([]);
+ const [judicialNotifs,setJudicialNotifs]=useState([]);
  const [filters,setFilters]=useState({search:'',category:'',department:'',status:'',fromDate:'',toDate:''});
  const [loading,setLoading]=useState(true);
  const [message,setMessage]=useState('');
  const [error,setError]=useState('');
+ const [showNotifForm,setShowNotifForm]=useState(false);
+ const [editingNotifId,setEditingNotifId]=useState(null);
+ const [notifForm,setNotifForm]=useState({user_id:'',title:'',message:'',case_number:'',court:'',filing_date:'',attachment_url:''});
+ const [notifSaving,setNotifSaving]=useState(false);
+ const [notifError,setNotifError]=useState('');
+
  async function load(){
   setLoading(true);setError('');
-  const [{data:caseRows,error:caseError},{data:profileRows,error:profileError},{data:auditRows,error:auditError},{data:authorizationRows,error:authorizationError}]=await Promise.all([
+  const [{data:caseRows,error:caseError},{data:profileRows,error:profileError},{data:auditRows,error:auditError},{data:authorizationRows,error:authorizationError},{data:notifRows,error:notifError}]=await Promise.all([
    supabase.from('cases').select('*').order('updated_at',{ascending:false}),
-   supabase.from('profiles').select('id,full_name,cedula,phone,address,email,role'),
+   supabase.from('profiles').select('id,full_name,cedula,phone,address,email,role,created_at'),
    supabase.from('audit_log').select('id,action,target_case_id,target_user_id,target_document_id,created_at,details').order('created_at',{ascending:false}).limit(100),
-   supabase.from('case_authorizations').select('id,case_id,authorized_at,revoked_at').eq('user_id',session.user.id).order('authorized_at',{ascending:false})
+   supabase.from('case_authorizations').select('id,case_id,authorized_at,revoked_at').eq('user_id',session.user.id).order('authorized_at',{ascending:false}),
+   supabase.from('notifications').select('*').order('created_at',{ascending:false}).limit(200)
   ]);
-  const firstError=caseError||profileError||auditError||authorizationError;
+  const firstError=caseError||profileError||auditError||authorizationError||notifError;
   if(firstError)setError('No se pudo cargar toda la información administrativa.');
-  setCases(caseRows||[]);setProfiles(profileRows||[]);setAudit(auditRows||[]);setAuthorizations(authorizationRows||[]);setLoading(false);
+  setCases(caseRows||[]);setProfiles(profileRows||[]);setAudit(auditRows||[]);setAuthorizations(authorizationRows||[]);setJudicialNotifs(notifRows||[]);setLoading(false);
  }
  useEffect(()=>{load()},[session.user.id]);
  const filtered=cases.filter(c=>{
@@ -902,6 +931,7 @@ function AdminPanel({session,onOpenCase}){
   return matchesSearch&&(!filters.category||c.legal_category===filters.category)&&(!filters.department||c.department===filters.department)&&(!filters.status||c.status===filters.status)&&(!filters.fromDate||c.created_at>=filters.fromDate)&&(!filters.toDate||c.created_at<=`${filters.toDate}T23:59:59.999Z`);
  });
  const activeAuthorizations=authorizations.filter(item=>!item.revoked_at);
+ const clientProfiles=profiles.filter(p=>p.role==='client'||p.role==='user'||!p.role);
  function setFilter(name,value){setFilters(prev=>({...prev,[name]:value}))}
  async function exportExcel(){
   setMessage('');
@@ -910,20 +940,142 @@ function AdminPanel({session,onOpenCase}){
   const url=URL.createObjectURL(data);const link=document.createElement('a');link.href=url;link.download='lexacaso-casos.xlsx';link.click();URL.revokeObjectURL(url);setMessage('Exportación descargada.');
  }
  function caseForAuthorization(item){return cases.find(itemCase=>itemCase.id===item.case_id)}
+
+ function resetNotifForm(){
+  setNotifForm({user_id:'',title:'',message:'',case_number:'',court:'',filing_date:'',attachment_url:''});
+  setEditingNotifId(null);setShowNotifForm(false);setNotifError('');
+ }
+
+ function startEditNotif(n){
+  setEditingNotifId(n.id);setShowNotifForm(true);
+  setNotifForm({user_id:n.user_id||'',title:n.title||'',message:n.message||'',case_number:n.case_number||'',court:n.court||'',filing_date:n.filing_date||'',attachment_url:n.attachment_url||''});
+ }
+
+ async function saveNotif(e){
+  e.preventDefault();setNotifError('');
+  if(!notifForm.user_id){setNotifError('Selecciona un cliente destinatario.');return}
+  if(!notifForm.title.trim()){setNotifError('El asunto es obligatorio.');return}
+  if(!notifForm.message.trim()){setNotifError('El mensaje es obligatorio.');return}
+  setNotifSaving(true);
+  const payload={user_id:notifForm.user_id,title:notifForm.title.trim(),message:notifForm.message.trim(),case_number:notifForm.case_number.trim()||null,court:notifForm.court.trim()||null,filing_date:notifForm.filing_date||null,attachment_url:notifForm.attachment_url.trim()||null,type:'judicial',is_read:false,archived:false};
+  let saveError;
+  if(editingNotifId){
+   const r=await supabase.from('notifications').update(payload).eq('id',editingNotifId);
+   saveError=r.error;
+  }else{
+   const r=await supabase.from('notifications').insert(payload);
+   saveError=r.error;
+  }
+  if(saveError){setNotifError('No se pudo guardar: '+saveError.message);setNotifSaving(false);return}
+  await supabase.rpc('record_audit_event',{p_action:'notification_sent',p_target_user_id:notifForm.user_id,p_details:{case_number:notifForm.case_number,court:notifForm.court}});
+  setNotifSaving(false);resetNotifForm();load();setMessage('Notificación guardada correctamente.');
+ }
+
+ async function deleteNotif(n){
+  if(!confirm('¿Eliminar esta notificación?'))return;
+  const {error:delError}=await supabase.from('notifications').delete().eq('id',n.id);
+  if(delError){setMessage('No se pudo eliminar la notificación.');return}
+  load();setMessage('Notificación eliminada.');
+ }
+
+ async function changeNotifStatus(n,newStatus){
+  const updates={};
+  if(newStatus==='read')updates.is_read=true;
+  else if(newStatus==='unread')updates.is_read=false;
+  else if(newStatus==='archived')updates.archived=true;
+  else if(newStatus==='unarchived')updates.archived=false;
+  const {error:updError}=await supabase.from('notifications').update(updates).eq('id',n.id);
+  if(updError){setMessage('No se pudo cambiar el estado.');return}
+  load();
+ }
+
+ function notifStatusLabel(n){
+  if(n.archived)return'Archivada';
+  return n.is_read?'Leída':'Pendiente';
+ }
+
  return <div className="adminPanel">
   <div className="dashHead"><div><div className="badge"><UserCog size={14}/> Acceso autorizado</div><h2>Panel de administración</h2><p>Solo muestra información de casos con autorización vigente para esta cuenta.</p></div><button className="primary" onClick={exportExcel}><Download size={17}/> Exportar Excel</button></div>
   {error&&<div className="notice error"><AlertCircle size={18}/><span>{error}</span></div>}
   {message&&<div className="notice success"><CheckCircle2 size={18}/><span>{message}</span></div>}
   <nav className="adminNav" aria-label="Secciones administrativas">
    <button className={section==='cases'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('cases')}><FolderOpen size={17}/> Casos</button>
+   <button className={section==='clients'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('clients')}><Users size={17}/> Clientes <span>{clientProfiles.length}</span></button>
+   <button className={section==='judicial'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('judicial')}><CourtIcon size={17}/> Notificaciones <span>{judicialNotifs.length}</span></button>
    <button className={section==='authorizations'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('authorizations')}><LockKeyhole size={17}/> Autorizaciones <span>{activeAuthorizations.length}</span></button>
    <button className={section==='audit'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('audit')}><Activity size={17}/> Auditoría <span>{audit.length}</span></button>
   </nav>
+
   {section==='cases'&&<>
    <div className="adminStats"><div><b>{profiles.length}</b><span>Usuarios visibles</span></div><div><b>{filtered.length}</b><span>Casos autorizados</span></div><div><b>{activeAuthorizations.length}</b><span>Autorizaciones activas</span></div></div>
    <div className="adminFilters"><div className="searchField"><Search size={17}/><input placeholder="Buscar por nombre, cédula, radicado o caso" value={filters.search} onChange={e=>setFilter('search',e.target.value)}/></div><select value={filters.category} onChange={e=>setFilter('category',e.target.value)}><option value="">Todas las categorías</option>{LEGAL_CATALOG.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select><select value={filters.department} onChange={e=>setFilter('department',e.target.value)}><option value="">Todos los departamentos</option>{DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select><select value={filters.status} onChange={e=>setFilter('status',e.target.value)}><option value="">Todos los estados</option><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select><input type="date" value={filters.fromDate} onChange={e=>setFilter('fromDate',e.target.value)}/><input type="date" value={filters.toDate} onChange={e=>setFilter('toDate',e.target.value)}/></div>
    <section className="adminCard"><div className="adminCardHeader"><h3><FolderOpen size={18}/> Casos autorizados</h3><span className="accessNote"><ShieldCheck size={14}/> Acceso limitado por autorización</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando...</div>:filtered.length?filtered.map(c=>{const p=profiles.find(x=>x.id===c.user_id);return <button className="adminCaseRow" key={c.id} onClick={()=>onOpenCase(c.id)}><div><b>{c.title}</b><span>{p?.full_name||'Usuario'} · {c.legal_category||'Sin categoría'} · {c.case_number||'Sin radicado'}</span></div><span className="caseStatus">{c.status==='in_progress'?'En trámite':c.status==='closed'?'Finalizado':'Recibido'}</span><ArrowRight size={17}/></button>}):<div className="empty"><LockKeyhole size={32}/><b>No hay casos autorizados</b><span>Los casos aparecerán cuando sus propietarios autoricen la revisión.</span></div>}</section>
   </>}
+
+  {section==='clients'&&<section className="adminCard adminWideCard">
+   <div className="adminCardHeader"><div><h3><Users size={18}/> Clientes registrados</h3><p className="adminCardHint">Lista completa de usuarios con su rol y fecha de registro.</p></div></div>
+   {loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando clientes...</div>:clientProfiles.length?<div className="authorizationAdminList">
+    {clientProfiles.map(p=><div className="authorizationAdminItem" key={p.id}>
+     <div><b>{p.full_name||'Sin nombre'}</b><span><Mail size={12}/> {p.email||'—'}</span><small>Registrado: {p.created_at?new Date(p.created_at).toLocaleDateString('es-CO'):'—'}</small></div>
+     <span className="caseStatus">{p.role==='admin'?'Administrador':'Cliente'}</span>
+    </div>)}
+   </div>:<div className="empty"><Users size={32}/><b>Sin clientes registrados</b><span>Los clientes aparecerán aquí cuando se registren.</span></div>}
+  </section>}
+
+  {section==='judicial'&&<>
+   <div className="dashHead" style={{marginBottom:'12px'}}>
+    <div><h3>Notificaciones judiciales</h3><p>Emite y gestiona notificaciones judiciales para clientes específicos.</p></div>
+    <button className="primary" onClick={()=>{resetNotifForm();setShowNotifForm(!showNotifForm)}}><Plus size={18}/> Nueva notificación</button>
+   </div>
+   {notifError&&<div className="notice error"><AlertCircle size={18}/><span>{notifError}</span></div>}
+   {showNotifForm&&<form className="caseForm extended" onSubmit={saveNotif} style={{marginBottom:'16px'}}>
+    <CollapsibleSection title="Destinatario" icon={User} defaultOpen={true} required>
+     <div className="formGroup">
+      <label>Cliente destinatario <span className="req">*</span></label>
+      <select value={notifForm.user_id} onChange={e=>setNotifForm({...notifForm,user_id:e.target.value})} disabled={notifSaving}>
+       <option value="">Selecciona un cliente...</option>
+       {clientProfiles.map(p=><option key={p.id} value={p.id}>{p.full_name||p.email||'Usuario'} {p.email?`(${p.email})`:''}</option>)}
+      </select>
+     </div>
+    </CollapsibleSection>
+    <CollapsibleSection title="Datos de la notificación" icon={CourtIcon} defaultOpen={true} required>
+     <div className="formGroup"><label>Asunto <span className="req">*</span></label><input value={notifForm.title} onChange={e=>setNotifForm({...notifForm,title:e.target.value})} disabled={notifSaving} placeholder="Ej: Notificación de auto admisorio"/></div>
+     <div className="formGroup"><label>Mensaje <span className="req">*</span></label><textarea value={notifForm.message} onChange={e=>setNotifForm({...notifForm,message:e.target.value})} rows="3" disabled={notifSaving} placeholder="Describe la notificación..."/></div>
+     <div className="formGrid2">
+      <div className="formGroup"><label>Número de expediente</label><input value={notifForm.case_number} onChange={e=>setNotifForm({...notifForm,case_number:e.target.value})} disabled={notifSaving} placeholder="Ej: 1100131030032024-001"/></div>
+      <div className="formGroup"><label>Juzgado</label><input value={notifForm.court} onChange={e=>setNotifForm({...notifForm,court:e.target.value})} disabled={notifSaving} placeholder="Ej: Juzgado 3 Civil del Circuito"/></div>
+     </div>
+     <div className="formGrid2">
+      <div className="formGroup"><label>Fecha de radicación</label><input type="date" value={notifForm.filing_date} onChange={e=>setNotifForm({...notifForm,filing_date:e.target.value})} disabled={notifSaving}/></div>
+      <div className="formGroup"><label>Enlace de consulta o archivo adjunto</label><input value={notifForm.attachment_url} onChange={e=>setNotifForm({...notifForm,attachment_url:e.target.value})} disabled={notifSaving} placeholder="https://..."/></div>
+     </div>
+    </CollapsibleSection>
+    <div className="row">
+     <button type="submit" className="primary" disabled={notifSaving}>{notifSaving?<><Loader2 size={18} className="spin"/> Guardando...</>:<><Send size={16}/> {editingNotifId?'Actualizar notificación':'Emitir notificación'}</>}</button>
+     <button type="button" className="ghost" onClick={resetNotifForm} disabled={notifSaving}>Cancelar</button>
+    </div>
+   </form>}
+   {loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando notificaciones...</div>:judicialNotifs.length?<div className="authorizationAdminList">
+    {judicialNotifs.map(n=>{const client=profiles.find(p=>p.id===n.user_id);return <div className="authorizationAdminItem" key={n.id}>
+     <div>
+      <b>{n.title}</b>
+      <span>Para: {client?.full_name||client?.email||'Cliente'}</span>
+      {n.case_number&&<small>Expediente: {n.case_number} · Juzgado: {n.court||'—'}</small>}
+      <small>{new Date(n.created_at).toLocaleString('es-CO')}</small>
+     </div>
+     <div className="timelineActions">
+      <span className="caseStatus">{notifStatusLabel(n)}</span>
+      <button className="ghost sm" onClick={()=>startEditNotif(n)}><Edit3 size={14}/> Editar</button>
+      {!n.is_read&&<button className="ghost sm" onClick={()=>changeNotifStatus(n,'read')}>Marcar leída</button>}
+      {n.is_read&&<button className="ghost sm" onClick={()=>changeNotifStatus(n,'unread')}>Marcar pendiente</button>}
+      {!n.archived&&<button className="ghost sm" onClick={()=>changeNotifStatus(n,'archived')}><Archive size={14}/> Archivar</button>}
+      {n.archived&&<button className="ghost sm" onClick={()=>changeNotifStatus(n,'unarchived')}>Desarchivar</button>}
+      <button className="ghost sm danger" onClick={()=>deleteNotif(n)}><Trash2 size={14}/></button>
+     </div>
+    </div>})}
+   </div>:<div className="empty"><CourtIcon size={32}/><b>Sin notificaciones judiciales</b><span>Crea la primera notificación para un cliente.</span></div>}
+  </>}
+
   {section==='authorizations'&&<section className="adminCard adminWideCard"><div className="adminCardHeader"><div><h3><LockKeyhole size={18}/> Mis autorizaciones</h3><p className="adminCardHint">Estos son los casos que sus propietarios te han permitido consultar.</p></div><span className="securePill"><ShieldCheck size={14}/> RLS activo</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando autorizaciones...</div>:activeAuthorizations.length? <div className="authorizationAdminList">{activeAuthorizations.map(item=>{const currentCase=caseForAuthorization(item);const owner=currentCase&&profiles.find(profile=>profile.id===currentCase.user_id);return <div className="authorizationAdminItem" key={item.id}><div><b>{currentCase?.title||'Caso autorizado'}</b><span>{owner?.full_name||'Propietario'}</span><small>Autorizado el {new Date(item.authorized_at).toLocaleDateString('es-CO')}</small></div>{currentCase&&<button className="ghost sm" onClick={()=>onOpenCase(currentCase.id)}><Eye size={15}/> Abrir caso</button>}</div>})}</div>:<div className="empty"><LockKeyhole size={32}/><b>No tienes autorizaciones activas</b><span>Un cliente debe autorizarte desde la sección de su caso.</span></div>}</section>}
   {section==='audit'&&<section className="adminCard adminWideCard"><div className="adminCardHeader"><div><h3><Activity size={18}/> Registro de auditoría</h3><p className="adminCardHint">Eventos registrados para revisar accesos y cambios administrativos.</p></div><span className="securePill"><ShieldCheck size={14}/> Solo administradores</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando auditoría...</div>:audit.length?<div className="auditTable">{audit.map(item=><div className="auditDetailRow" key={item.id}><div><b>{item.action}</b><span>{item.target_case_id?'Caso relacionado: '+item.target_case_id:'Evento general'}</span></div><time>{new Date(item.created_at).toLocaleString('es-CO')}</time></div>)}</div>:<div className="empty"><Activity size={32}/><b>Sin eventos</b><span>Los eventos administrativos aparecerán aquí.</span></div>}</section>}
  </div>
