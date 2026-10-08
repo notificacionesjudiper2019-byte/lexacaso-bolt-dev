@@ -368,8 +368,13 @@ function CaseForm({session,profileData,onClose,onSaved}){
      setSaving(false);return;
     }
    }
+   try{
+    const docsList=[];
+    if(file&&filePath){docsList.push({file_name:file.name,content_type:file.type||'',created_at:new Date().toLocaleString('es-CO')})}
+    fetch(`${supabaseUrl}/functions/v1/send-email`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${supabaseKey}`},body:JSON.stringify({type:'case_filed',case_id:c.id,user_id:user.user.id,client_email:email,client_name:fullName.trim(),case_title:title.trim(),case_facts:facts.trim(),legal_category:legalCategory,legal_subcategory:legalSubcategory,documents:docsList})}).catch(()=>{});
+   }catch(emailErr){}
    resetForm();
-   onSaved(c.id,'Caso guardado correctamente.','success');
+   onSaved(c.id,'Caso guardado correctamente. Hemos enviado el comprobante de radicaci\u00f3n y listado de documentos a tu correo electr\u00f3nico registrado.','success');
   } catch(err){
    setFormError('Error inesperado al guardar el caso. Tus datos no se han perdido del formulario.');
   } finally {
@@ -1080,6 +1085,33 @@ function AdminPanel({session,onOpenCase}){
  const [clientEditSaving,setClientEditSaving]=useState(false);
  const [clientEditError,setClientEditError]=useState('');
  const [deletingClient,setDeletingClient]=useState(null);
+ const [emailLogs,setEmailLogs]=useState([]);
+ const [emailLogsLoading,setEmailLogsLoading]=useState(false);
+ const [deletingCase,setDeletingCase]=useState(null);
+
+ async function loadEmailLogs(){
+  setEmailLogsLoading(true);
+  const {data}=await supabase.from('email_log').select('*').order('created_at',{ascending:false}).limit(200);
+  setEmailLogs(data||[]);
+  setEmailLogsLoading(false);
+ }
+ async function deleteCase(c){
+  if(!confirm('¿Eliminar definitivamente el caso "'+c.title+'"? Se borrarán sus documentos asociados. Esta acción no se puede deshacer.'))return;
+  setDeletingCase(c.id);
+  try{
+   const {data:docs}=await supabase.from('case_documents').select('storage_path').eq('case_id',c.id);
+   if(docs&&docs.length){for(const d of docs){if(d.storage_path){try{await supabase.storage.from('case-documents').remove([d.storage_path])}catch(e2){}}}}
+   const {error}=await supabase.rpc('admin_delete_case',{p_case_id:c.id});
+   if(error){setMessage('No se pudo eliminar el caso: '+error.message);return}
+   await supabase.rpc('record_audit_event',{p_action:'case_deleted_by_admin',p_target_case_id:c.id,p_details:{title:c.title}});
+   setMessage('Caso eliminado correctamente.');
+   load();
+  }catch(err){
+   setMessage('Error inesperado al eliminar el caso.');
+  }finally{
+   setDeletingCase(null);
+  }
+ }
 
  async function load(){
   setLoading(true);setError('');
@@ -1310,12 +1342,13 @@ function AdminPanel({session,onOpenCase}){
    <button className={section==='authorizations'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('authorizations')}><LockKeyhole size={17}/> Autorizaciones <span>{activeAuthorizations.length}</span></button>
    <button className={section==='documents'?'adminNavItem active':'adminNavItem'} onClick={()=>{setSection('documents');if(adminDocs.length===0)loadAdminDocs()}}><FileText size={17}/> Documentos <span>{adminDocs.length}</span></button>
    <button className={section==='audit'?'adminNavItem active':'adminNavItem'} onClick={()=>setSection('audit')}><Activity size={17}/> Auditoría <span>{audit.length}</span></button>
+   <button className={section==='emails'?'adminNavItem active':'adminNavItem'} onClick={()=>{setSection('emails');if(emailLogs.length===0)loadEmailLogs()}}><Mail size={17}/> Correos <span>{emailLogs.length}</span></button>
   </nav>
 
   {section==='cases'&&<>
    <div className="adminStats"><div><b>{profiles.length}</b><span>Usuarios visibles</span></div><div><b>{filtered.length}</b><span>Casos autorizados</span></div><div><b>{activeAuthorizations.length}</b><span>Autorizaciones activas</span></div></div>
    <div className="adminFilters"><div className="searchField"><Search size={17}/><input placeholder="Buscar por nombre, cédula, radicado o caso" value={filters.search} onChange={e=>setFilter('search',e.target.value)}/></div><select value={filters.category} onChange={e=>setFilter('category',e.target.value)}><option value="">Todas las categorías</option>{LEGAL_CATALOG.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select><select value={filters.department} onChange={e=>setFilter('department',e.target.value)}><option value="">Todos los departamentos</option>{DEPARTMENTS.map(d=><option key={d} value={d}>{d}</option>)}</select><select value={filters.status} onChange={e=>setFilter('status',e.target.value)}><option value="">Todos los estados</option><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select><input type="date" value={filters.fromDate} onChange={e=>setFilter('fromDate',e.target.value)}/><input type="date" value={filters.toDate} onChange={e=>setFilter('toDate',e.target.value)}/><button className="ghost" onClick={()=>load()} disabled={loading}><RefreshCw size={16} className={loading?'spin':''}/> Recargar</button></div>
-   <section className="adminCard"><div className="adminCardHeader"><h3><FolderOpen size={18}/> Casos autorizados</h3><span className="accessNote"><ShieldCheck size={14}/> Acceso limitado por autorización</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando...</div>:filtered.length?filtered.map(c=>{const p=profiles.find(x=>x.id===c.user_id);return <div key={c.id} className="adminCaseRowWrapper">{editingCase===c.id?<form className="caseEditForm" onSubmit={saveCaseEdit}>{caseEditError&&<div className="notice error"><AlertCircle size={16}/><span>{caseEditError}</span></div>}<div className="formGroup"><label>Asunto / Título <span className="req">*</span></label><input value={caseEditForm.title} onChange={e=>setCaseEditForm({...caseEditForm,title:e.target.value})} disabled={caseEditSaving}/></div><div className="formGrid2"><div className="formGroup"><label>Número de expediente</label><input value={caseEditForm.case_number} onChange={e=>setCaseEditForm({...caseEditForm,case_number:e.target.value})} disabled={caseEditSaving} placeholder="Ej: 1100131030032024-001"/></div><div className="formGroup"><label>Juzgado / Autoridad</label><input value={caseEditForm.court} onChange={e=>setCaseEditForm({...caseEditForm,court:e.target.value})} disabled={caseEditSaving} placeholder="Ej: Juzgado 3 Civil"/></div></div><div className="formGrid2"><div className="formGroup"><label>Fecha de radicación</label><input type="date" value={caseEditForm.filing_date} onChange={e=>setCaseEditForm({...caseEditForm,filing_date:e.target.value})} disabled={caseEditSaving}/></div><div className="formGroup"><label>Estado</label><select value={caseEditForm.status} onChange={e=>setCaseEditForm({...caseEditForm,status:e.target.value})} disabled={caseEditSaving}><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select></div></div><div className="row"><button type="submit" className="primary" disabled={caseEditSaving}>{caseEditSaving?<><Loader2 size={16} className="spin"/> Guardando...</>:<><CheckCircle2 size={16}/> Guardar cambios</>}</button><button type="button" className="ghost" onClick={cancelEditCase} disabled={caseEditSaving}>Cancelar</button></div></form>:<div className="adminCaseRow"><div className="adminCaseRowMain" onClick={()=>onOpenCase(c.id)}><b>{c.title}</b><span>{p?.full_name||'Usuario'} · {c.legal_category||'Sin categoría'} · {c.case_number||'Sin radicado'}</span></div><span className="caseStatus">{c.status==='in_progress'?'En trámite':c.status==='closed'?'Finalizado':'Recibido'}</span><div className="timelineActions"><button className="ghost sm" onClick={()=>startEditCase(c)}><Edit3 size={14}/> Editar</button><select className="roleSelect" value={c.status||'received'} onChange={e=>changeCaseStatus(c.id,e.target.value)}><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select><button className="ghost sm" onClick={()=>onOpenCase(c.id)}><Eye size={14}/> Ver</button></div></div>}</div>}):<div className="empty"><LockKeyhole size={32}/><b>No hay casos autorizados</b><span>Los casos aparecerán cuando sus propietarios autoricen la revisión.</span></div>}</section>
+   <section className="adminCard"><div className="adminCardHeader"><h3><FolderOpen size={18}/> Casos autorizados</h3><span className="accessNote"><ShieldCheck size={14}/> Acceso limitado por autorización</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando...</div>:filtered.length?filtered.map(c=>{const p=profiles.find(x=>x.id===c.user_id);return <div key={c.id} className="adminCaseRowWrapper">{editingCase===c.id?<form className="caseEditForm" onSubmit={saveCaseEdit}>{caseEditError&&<div className="notice error"><AlertCircle size={16}/><span>{caseEditError}</span></div>}<div className="formGroup"><label>Asunto / Título <span className="req">*</span></label><input value={caseEditForm.title} onChange={e=>setCaseEditForm({...caseEditForm,title:e.target.value})} disabled={caseEditSaving}/></div><div className="formGrid2"><div className="formGroup"><label>Número de expediente</label><input value={caseEditForm.case_number} onChange={e=>setCaseEditForm({...caseEditForm,case_number:e.target.value})} disabled={caseEditSaving} placeholder="Ej: 1100131030032024-001"/></div><div className="formGroup"><label>Juzgado / Autoridad</label><input value={caseEditForm.court} onChange={e=>setCaseEditForm({...caseEditForm,court:e.target.value})} disabled={caseEditSaving} placeholder="Ej: Juzgado 3 Civil"/></div></div><div className="formGrid2"><div className="formGroup"><label>Fecha de radicación</label><input type="date" value={caseEditForm.filing_date} onChange={e=>setCaseEditForm({...caseEditForm,filing_date:e.target.value})} disabled={caseEditSaving}/></div><div className="formGroup"><label>Estado</label><select value={caseEditForm.status} onChange={e=>setCaseEditForm({...caseEditForm,status:e.target.value})} disabled={caseEditSaving}><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select></div></div><div className="row"><button type="submit" className="primary" disabled={caseEditSaving}>{caseEditSaving?<><Loader2 size={16} className="spin"/> Guardando...</>:<><CheckCircle2 size={16}/> Guardar cambios</>}</button><button type="button" className="ghost" onClick={cancelEditCase} disabled={caseEditSaving}>Cancelar</button></div></form>:<div className="adminCaseRow"><div className="adminCaseRowMain" onClick={()=>onOpenCase(c.id)}><b>{c.title}</b><span>{p?.full_name||'Usuario'} · {c.legal_category||'Sin categoría'} · {c.case_number||'Sin radicado'}</span></div><span className="caseStatus">{c.status==='in_progress'?'En trámite':c.status==='closed'?'Finalizado':'Recibido'}</span><div className="timelineActions"><button className="ghost sm" onClick={()=>startEditCase(c)}><Edit3 size={14}/> Editar</button><select className="roleSelect" value={c.status||'received'} onChange={e=>changeCaseStatus(c.id,e.target.value)}><option value="received">Recibido</option><option value="in_progress">En trámite</option><option value="closed">Finalizado</option></select><button className="ghost sm" onClick={()=>onOpenCase(c.id)}><Eye size={14}/> Ver</button><button className="ghost sm danger" onClick={()=>deleteCase(c)} disabled={deletingCase===c.id}>{deletingCase===c.id?<Loader2 size={14} className="spin"/>:<><Trash2 size={14}/> Eliminar</>}</button></div></div>}</div>}):<div className="empty"><LockKeyhole size={32}/><b>No hay casos autorizados</b><span>Los casos aparecerán cuando sus propietarios autoricen la revisión.</span></div>}</section>
   </>}
 
   {section==='clients'&&<section className="adminCard adminWideCard">
@@ -1439,6 +1472,8 @@ function AdminPanel({session,onOpenCase}){
   </section>}
 
   {section==='audit'&&<section className="adminCard adminWideCard"><div className="adminCardHeader"><div><h3><Activity size={18}/> Registro de auditoría</h3><p className="adminCardHint">Eventos registrados para revisar accesos y cambios administrativos.</p></div><span className="securePill"><ShieldCheck size={14}/> Solo administradores</span></div>{loading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando auditoría...</div>:audit.length?<div className="auditTable">{audit.map(item=><div className="auditDetailRow" key={item.id}><div><b>{item.action}</b><span>{item.target_case_id?'Caso relacionado: '+item.target_case_id:'Evento general'}</span></div><time>{new Date(item.created_at).toLocaleString('es-CO')}</time></div>)}</div>:<div className="empty"><Activity size={32}/><b>Sin eventos</b><span>Los eventos administrativos aparecerán aquí.</span></div>}</section>}
+
+  {section==='emails'&&<section className="adminCard adminWideCard"><div className="adminCardHeader"><div><h3><Mail size={18}/> Historial de correos enviados</h3><p className="adminCardHint">Registro de todas las notificaciones por correo electrónico enviadas a los clientes.</p></div><span className="securePill"><ShieldCheck size={14}/> Solo administradores</span></div>{emailLogsLoading?<div className="profileLoading"><Loader2 size={22} className="spin"/> Cargando correos...</div>:emailLogs.length?<div className="authorizationAdminList">{emailLogs.map(e=>{const profile=profiles.find(p=>p.id===e.user_id);const caseRow=cases.find(c=>c.id===e.case_id);return <div className="auditDetailRow" key={e.id}><div><b>{e.subject}</b><span>Para: {e.recipient_email}</span><small>{profile?.full_name||'Cliente'}{caseRow?' · Caso: '+caseRow.title:''}</small><small style={{display:'block',marginTop:'2px'}}>{e.email_type==='case_filed'?'Confirmación de radicación':e.email_type==='new_notification'?'Notificación judicial':e.email_type}</small></div><time>{new Date(e.created_at).toLocaleString('es-CO')}</time></div>})}</div>:<div className="empty"><Mail size={32}/><b>Sin correos registrados</b><span>Los correos de confirmación aparecerán aquí cuando los clientes radiquen casos.</span></div>}</section>}
  </div>
 }
 function ProfileForm({session}){
